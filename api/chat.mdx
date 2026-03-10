@@ -1,0 +1,224 @@
+---
+title: Chat API
+description: Interact with Qwen models using the chat interface for conversational AI
+---
+
+## Overview
+
+The Qwen Chat API provides methods for conversational interactions with the model. It supports both synchronous and streaming responses, multi-turn conversations with history, and custom system prompts.
+
+## chat() Method
+
+Generate a complete response for a user query:
+
+```python
+response, updated_history = model.chat(
+    tokenizer,
+    query="What is quantum computing?",
+    history=None,
+    system="You are a helpful assistant."
+)
+
+print(response)
+```
+
+### Parameters
+
+<ParamField path="tokenizer" type="AutoTokenizer" required>
+  Tokenizer instance for encoding/decoding text
+</ParamField>
+
+<ParamField path="query" type="str" required>
+  User's current message or question
+</ParamField>
+
+<ParamField path="history" type="list[tuple[str, str]]" default="None">
+  Conversation history as list of (user_message, assistant_response) tuples:
+  ```python
+  history = [
+      ("Hello", "Hi! How can I help you today?"),
+      ("What's the weather?", "I don't have access to weather data.")
+  ]
+  ```
+</ParamField>
+
+<ParamField path="system" type="str" default="You are a helpful assistant.">
+  System prompt defining the assistant's behavior and role
+</ParamField>
+
+<ParamField path="stop_words_ids" type="list[list[int]]" default="None">
+  Token ID sequences that trigger generation termination:
+  ```python
+  stop_words_ids = [
+      tokenizer.encode("<|im_end|>"),
+      tokenizer.encode("\n\n")
+  ]
+  ```
+</ParamField>
+
+<ParamField path="**gen_kwargs" type="dict">
+  Additional generation parameters (see [GenerationConfig](/api/generation-config))
+</ParamField>
+
+### Returns
+
+<ResponseField name="response" type="str">
+  The model's generated response text
+</ResponseField>
+
+<ResponseField name="history" type="list[tuple[str, str]]">
+  Updated conversation history including the current exchange
+</ResponseField>
+
+## chat_stream() Method
+
+Generate a streaming response for real-time display:
+
+```python
+for partial_response in model.chat_stream(
+    tokenizer,
+    query="Explain neural networks",
+    history=history,
+    system="You are a helpful assistant."
+):
+    print(partial_response, end="", flush=True)
+```
+
+### Parameters
+
+Same as `chat()` method.
+
+### Yields
+
+<ResponseField name="partial_response" type="str">
+  Incrementally generated response text. Each yield contains the full response up to the current point (not just the delta).
+</ResponseField>
+
+## Multi-turn Conversation Example
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model and tokenizer
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True
+)
+
+# Initialize conversation
+history = []
+system = "You are a helpful AI assistant."
+
+# First turn
+response, history = model.chat(
+    tokenizer,
+    "Hello! Who are you?",
+    history=history,
+    system=system
+)
+print(f"Assistant: {response}")
+
+# Second turn (with context)
+response, history = model.chat(
+    tokenizer,
+    "What can you help me with?",
+    history=history,
+    system=system
+)
+print(f"Assistant: {response}")
+
+# History now contains both exchanges
+print(f"History length: {len(history)}")
+```
+
+## Streaming Response Example
+
+```python
+import sys
+
+query = "Write a short poem about AI"
+
+for response in model.chat_stream(
+    tokenizer,
+    query,
+    history=history,
+    generation_config=generation_config
+):
+    # Clear and rewrite output
+    sys.stdout.write('\r' + ' ' * 80 + '\r')
+    sys.stdout.write(response)
+    sys.stdout.flush()
+
+print()  # New line after completion
+```
+
+## Custom System Prompts
+
+```python
+# Technical expert
+system = "You are an expert software engineer specializing in Python."
+
+response, history = model.chat(
+    tokenizer,
+    "How do I optimize this code?",
+    system=system
+)
+
+# Creative writing
+system = "You are a creative writing assistant who helps with storytelling."
+
+response, history = model.chat(
+    tokenizer,
+    "Help me write a story about space exploration",
+    system=system
+)
+```
+
+## Using Stop Words
+
+```python
+# Stop generation at specific sequences
+stop_words = ["Observation:", "<|endoftext|>"]
+stop_words_ids = [tokenizer.encode(s) for s in stop_words]
+
+response, history = model.chat(
+    tokenizer,
+    query="Generate a function call",
+    stop_words_ids=stop_words_ids
+)
+```
+
+## Generation with Parameters
+
+```python
+response, history = model.chat(
+    tokenizer,
+    query="Tell me a creative story",
+    history=history,
+    temperature=0.8,
+    top_p=0.9,
+    top_k=50,
+    max_new_tokens=512
+)
+```
+
+## Chat Message Format
+
+Internally, chat messages use the ChatML format:
+
+```
+<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Hello!<|im_end|>
+<|im_start|>assistant
+Hi! How can I help you today?<|im_end|>
+```
+
+The `chat()` and `chat_stream()` methods handle this formatting automatically.

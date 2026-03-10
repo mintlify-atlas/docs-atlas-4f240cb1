@@ -1,0 +1,580 @@
+---
+title: Docker Deployment
+description: Deploy Qwen models using Docker containers for simplified setup and consistent environments
+---
+
+Docker provides a containerized environment for running Qwen models with all dependencies pre-configured. This is the easiest way to get started with production deployments.
+
+## Pre-built Docker Images
+
+Qwen provides official Docker images on Docker Hub:
+
+```bash
+# CUDA 11.7 (default)
+docker pull qwenllm/qwen:cu117
+
+# CUDA 11.4
+docker pull qwenllm/qwen:cu114
+
+# CUDA 12.1 (latest)
+docker pull qwenllm/qwen:cu121
+```
+
+<Note>
+Choose the image that matches your NVIDIA driver version. Check compatibility at [NVIDIA CUDA Compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/).
+</Note>
+
+## Quick Start
+
+### Web Demo Deployment
+
+<Steps>
+  <Step title="Download the Deployment Script">
+    ```bash
+    git clone https://github.com/QwenLM/Qwen.git
+    cd Qwen/docker
+    ```
+  </Step>
+
+  <Step title="Run the Web Demo">
+    ```bash
+    bash docker_web_demo.sh \
+      -c /path/to/Qwen-7B-Chat \
+      -n qwen-web \
+      --port 8901
+    ```
+  </Step>
+
+  <Step title="Access the Interface">
+    Open your browser and navigate to `http://localhost:8901`
+  </Step>
+</Steps>
+
+### OpenAI API Server Deployment
+
+<Steps>
+  <Step title="Run the API Server">
+    ```bash
+    bash docker_openai_api.sh \
+      -c /path/to/Qwen-7B-Chat \
+      -n qwen-api \
+      --port 8000
+    ```
+  </Step>
+
+  <Step title="Test the API">
+    ```bash
+    curl http://localhost:8000/v1/models
+    ```
+  </Step>
+</Steps>
+
+### CLI Demo Deployment
+
+```bash
+bash docker_cli_demo.sh \
+  -c /path/to/Qwen-7B-Chat \
+  -n qwen-cli
+```
+
+## Manual Docker Commands
+
+### Basic Container Launch
+
+```bash
+docker run --gpus all -it --rm \
+  --name qwen-chat \
+  -v /path/to/models:/data/shared/Qwen/models \
+  -p 8000:8000 \
+  qwenllm/qwen:cu117 \
+  python openai_api.py -c /data/shared/Qwen/models/Qwen-7B-Chat --server-port 8000 --server-name 0.0.0.0
+```
+
+### Persistent Container
+
+For long-running deployments:
+
+```bash
+docker run --gpus all -d \
+  --name qwen-api \
+  --restart always \
+  -v /path/to/models:/models:ro \
+  -p 8000:80 \
+  qwenllm/qwen:cu117 \
+  python openai_api.py -c /models/Qwen-7B-Chat --server-port 80 --server-name 0.0.0.0
+```
+
+<ParamField path="--gpus all" type="flag" required>
+  Enable GPU access for the container
+</ParamField>
+
+<ParamField path="-d" type="flag">
+  Run container in detached mode (background)
+</ParamField>
+
+<ParamField path="--restart always" type="flag">
+  Automatically restart container on failure or system reboot
+</ParamField>
+
+<ParamField path="-v" type="mount">
+  Mount host directory to container. Use `:ro` for read-only access
+</ParamField>
+
+<ParamField path="-p" type="port mapping">
+  Map container port to host port (host:container)
+</ParamField>
+
+## Custom Dockerfile
+
+Build your own Docker image with specific requirements:
+
+<CodeGroup>
+```dockerfile Basic Dockerfile
+ARG CUDA_VERSION=11.7.1
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-devel-ubuntu20.04
+
+# Install system dependencies
+RUN apt update -y && apt upgrade -y && apt install -y \
+    git git-lfs python3 python3-pip python3-dev wget vim \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN git lfs install
+
+# Create working directory
+WORKDIR /workspace
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install Flash Attention (optional but recommended)
+RUN pip3 install flash-attn --no-build-isolation
+
+# Copy application code
+COPY openai_api.py .
+COPY cli_demo.py .
+COPY web_demo.py .
+
+EXPOSE 8000
+
+CMD ["python", "openai_api.py", "-c", "/models/Qwen-Chat", "--server-port", "8000", "--server-name", "0.0.0.0"]
+```
+
+```dockerfile Production Dockerfile
+ARG CUDA_VERSION=12.1.0
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-devel-ubuntu22.04 as base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 python3-pip git git-lfs wget curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 qwen && \
+    mkdir -p /models /workspace && \
+    chown -R qwen:qwen /models /workspace
+
+USER qwen
+WORKDIR /workspace
+
+# Install Python packages
+COPY --chown=qwen:qwen requirements.txt .
+RUN pip3 install --no-cache-dir --user \
+    torch==2.1.0 torchvision torchaudio \
+    && pip3 install --no-cache-dir --user -r requirements.txt
+
+# Install Flash Attention and vLLM
+RUN pip3 install --no-cache-dir --user flash-attn vllm==0.2.7
+
+# Install API dependencies
+RUN pip3 install --no-cache-dir --user \
+    fastapi uvicorn "openai<1.0" sse_starlette "pydantic<=1.10.13"
+
+ENV PATH="/home/qwen/.local/bin:${PATH}"
+
+# Copy application
+COPY --chown=qwen:qwen . .
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5m --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+ENTRYPOINT ["python3", "openai_api.py"]
+CMD ["-c", "/models/Qwen-Chat", "--server-port", "8000", "--server-name", "0.0.0.0"]
+```
+
+```dockerfile Multi-stage Build
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 as builder
+
+RUN apt-get update && apt-get install -y python3.10 python3-pip git
+
+WORKDIR /build
+
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --target=/install \
+    torch torchvision torchaudio transformers accelerate
+
+RUN pip3 install --no-cache-dir --target=/install flash-attn
+
+# Production stage
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y python3.10 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local/lib/python3.10/dist-packages
+
+WORKDIR /workspace
+COPY . .
+
+EXPOSE 8000
+CMD ["python3", "openai_api.py"]
+```
+</CodeGroup>
+
+### Build and Run Custom Image
+
+```bash
+# Build the image
+docker build -t qwen-custom:latest -f Dockerfile .
+
+# Run the container
+docker run --gpus all -d \
+  --name qwen-api \
+  -v /path/to/models:/models:ro \
+  -p 8000:8000 \
+  qwen-custom:latest \
+  -c /models/Qwen-7B-Chat
+```
+
+## Docker Compose
+
+Manage multi-container deployments with Docker Compose:
+
+<CodeGroup>
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  qwen-api:
+    image: qwenllm/qwen:cu121
+    container_name: qwen-api
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - /path/to/models:/models:ro
+      - ./logs:/workspace/logs
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    command: >
+      python openai_api.py
+      -c /models/Qwen-7B-Chat
+      --server-port 8000
+      --server-name 0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+
+  nginx:
+    image: nginx:alpine
+    container_name: qwen-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - qwen-api
+```
+
+```yaml docker-compose.multi-gpu.yml
+version: '3.8'
+
+services:
+  qwen-7b:
+    image: qwenllm/qwen:cu121
+    container_name: qwen-7b
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - /models:/models:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    command: python openai_api.py -c /models/Qwen-7B-Chat --server-port 8000 --server-name 0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+
+  qwen-14b:
+    image: qwenllm/qwen:cu121
+    container_name: qwen-14b
+    restart: always
+    ports:
+      - "8001:8000"
+    volumes:
+      - /models:/models:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+    command: python openai_api.py -c /models/Qwen-14B-Chat --server-port 8000 --server-name 0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+```
+</CodeGroup>
+
+### Launch with Docker Compose
+
+```bash
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f qwen-api
+
+# Stop services
+docker-compose down
+
+# Restart a service
+docker-compose restart qwen-api
+```
+
+## Container Management
+
+### Monitoring
+
+```bash
+# View container logs
+docker logs qwen-api
+
+# Follow logs in real-time
+docker logs -f qwen-api
+
+# Check container stats
+docker stats qwen-api
+
+# Inspect container
+docker inspect qwen-api
+```
+
+### Interactive Access
+
+```bash
+# Open shell in running container
+docker exec -it qwen-api bash
+
+# Run Python in container
+docker exec -it qwen-api python
+
+# Check GPU status
+docker exec qwen-api nvidia-smi
+```
+
+### Resource Limits
+
+```bash
+# Limit CPU and memory
+docker run --gpus all -d \
+  --name qwen-api \
+  --cpus="4.0" \
+  --memory="16g" \
+  --memory-swap="16g" \
+  -p 8000:8000 \
+  qwenllm/qwen:cu121
+```
+
+## Production Best Practices
+
+<AccordionGroup>
+  <Accordion title="Security">
+    - Run containers as non-root user
+    - Use read-only filesystem where possible
+    - Scan images for vulnerabilities
+    - Keep base images updated
+    - Use secrets management for sensitive data
+    ```bash
+    docker run --gpus all -d \
+      --user 1000:1000 \
+      --read-only \
+      --tmpfs /tmp \
+      qwenllm/qwen:cu121
+    ```
+  </Accordion>
+
+  <Accordion title="Networking">
+    - Use custom networks for isolation
+    - Implement reverse proxy (Nginx/Traefik)
+    - Enable TLS/HTTPS
+    - Configure proper firewall rules
+    ```bash
+    docker network create qwen-network
+    docker run --network qwen-network ...
+    ```
+  </Accordion>
+
+  <Accordion title="Storage">
+    - Use volumes for persistent data
+    - Mount model files as read-only
+    - Implement proper backup strategy
+    - Use volume drivers for distributed storage
+    ```bash
+    docker volume create qwen-models
+    docker run -v qwen-models:/models:ro ...
+    ```
+  </Accordion>
+
+  <Accordion title="High Availability">
+    - Use Docker Swarm or Kubernetes for orchestration
+    - Implement health checks
+    - Configure automatic restart policies
+    - Set up load balancing
+    - Monitor container metrics
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="GPU not detected">
+    **Error**: `RuntimeError: No CUDA GPUs are available`
+    
+    **Solutions**:
+    - Install nvidia-docker2:
+      ```bash
+      distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+      curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+      curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+      sudo apt-get update && sudo apt-get install -y nvidia-docker2
+      sudo systemctl restart docker
+      ```
+    - Verify with: `docker run --rm --gpus all nvidia/cuda:11.7.1-base-ubuntu20.04 nvidia-smi`
+  </Accordion>
+
+  <Accordion title="Out of memory">
+    **Error**: `CUDA out of memory`
+    
+    **Solutions**:
+    - Use quantized models (Int4/Int8)
+    - Increase Docker memory limit
+    - Use multi-GPU deployment
+    - Reduce max sequence length
+  </Accordion>
+
+  <Accordion title="Container exits immediately">
+    **Issue**: Container stops right after starting
+    
+    **Debug steps**:
+    ```bash
+    # Check logs
+    docker logs qwen-api
+    
+    # Run in interactive mode
+    docker run --gpus all -it --rm qwenllm/qwen:cu121 bash
+    
+    # Test model loading
+    docker run --gpus all -it --rm \
+      -v /path/to/models:/models \
+      qwenllm/qwen:cu121 \
+      python -c "from transformers import AutoModel; AutoModel.from_pretrained('/models/Qwen-7B-Chat', trust_remote_code=True)"
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied">
+    **Error**: Permission denied accessing model files
+    
+    **Solution**: Fix file permissions:
+    ```bash
+    # On host
+    sudo chown -R 1000:1000 /path/to/models
+    
+    # Or run container with current user
+    docker run --user $(id -u):$(id -g) ...
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+### Multi-stage Builds
+
+Reduce image size with multi-stage builds:
+
+```dockerfile
+# Build stage
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 as builder
+RUN apt-get update && apt-get install -y python3 python3-pip
+COPY requirements.txt .
+RUN pip install --target=/install -r requirements.txt
+
+# Runtime stage
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+COPY --from=builder /install /usr/local/lib/python3.10/dist-packages
+# Smaller final image
+```
+
+### Layer Caching
+
+Optimize build times:
+
+```dockerfile
+# Copy requirements first (cached layer)
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy code last (changes frequently)
+COPY . .
+```
+
+### GPU Memory Management
+
+```bash
+# Limit GPU memory
+docker run --gpus '"device=0"' \
+  -e CUDA_VISIBLE_DEVICES=0 \
+  qwenllm/qwen:cu121
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="vLLM Deployment" icon="rocket" href="/deployment/vllm">
+    Scale up with high-performance vLLM
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/deployment/kubernetes">
+    Deploy on Kubernetes clusters
+  </Card>
+  <Card title="Production Guide" icon="shield" href="/deployment/production">
+    Best practices for production
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/monitoring">
+    Set up monitoring and alerting
+  </Card>
+</CardGroup>

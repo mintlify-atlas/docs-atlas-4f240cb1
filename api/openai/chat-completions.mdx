@@ -1,0 +1,320 @@
+---
+title: Chat Completions
+description: OpenAI-compatible chat completions endpoint for Qwen models
+---
+
+## Overview
+
+The Chat Completions API provides an OpenAI-compatible interface for conversational AI with Qwen models. It supports chat conversations, function calling, streaming responses, and custom generation parameters.
+
+## Endpoint
+
+```
+POST http://localhost:8000/v1/chat/completions
+```
+
+## Request
+
+### Request Body
+
+```json
+{
+  "model": "gpt-3.5-turbo",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "What is quantum computing?"
+    }
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_length": 2048,
+  "stream": false
+}
+```
+
+### Parameters
+
+<ParamField path="model" type="string" required>
+  Model identifier (currently returns "gpt-3.5-turbo" regardless of input)
+</ParamField>
+
+<ParamField path="messages" type="array" required>
+  Array of message objects forming the conversation. Each message has:
+  - `role`: One of `"system"`, `"user"`, `"assistant"`, or `"function"`
+  - `content`: Message text content
+  - `function_call`: (Optional) Function call object for assistant messages
+</ParamField>
+
+<ParamField path="temperature" type="float" default="None">
+  Sampling temperature between 0 and 2:
+  - `< 0.01`: Effectively greedy decoding (sets `top_k=1`)
+  - `0.7-0.9`: Balanced creativity
+  - `> 1.0`: More random
+  
+  Note: Tuning `top_p` is recommended over temperature.
+</ParamField>
+
+<ParamField path="top_p" type="float" default="None">
+  Nucleus sampling probability threshold (0-1)
+</ParamField>
+
+<ParamField path="top_k" type="int" default="None">
+  Limits sampling to top K tokens
+</ParamField>
+
+<ParamField path="max_length" type="int" default="None">
+  Maximum total sequence length (input + output tokens)
+</ParamField>
+
+<ParamField path="stream" type="boolean" default="false">
+  Whether to stream partial responses as Server-Sent Events (SSE)
+</ParamField>
+
+<ParamField path="stop" type="array[string]" default="None">
+  Up to 4 sequences where generation should stop:
+  ```json
+  "stop": ["\n\n", "User:"]
+  ```
+</ParamField>
+
+<ParamField path="functions" type="array" default="None">
+  List of function definitions for function calling:
+  ```json
+  "functions": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {"type": "string"}
+        }
+      }
+    }
+  ]
+  ```
+  Note: Not supported in stream mode.
+</ParamField>
+
+## Response
+
+### Non-Streaming Response
+
+```json
+{
+  "model": "gpt-3.5-turbo",
+  "object": "chat.completion",
+  "created": 1677652288,
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Quantum computing is a type of computing that uses quantum-mechanical phenomena..."
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
+```
+
+### Response Fields
+
+<ResponseField name="model" type="string">
+  Model identifier from request
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Object type: `"chat.completion"` or `"chat.completion.chunk"` (streaming)
+</ResponseField>
+
+<ResponseField name="created" type="integer">
+  Unix timestamp of when the completion was created
+</ResponseField>
+
+<ResponseField name="choices" type="array">
+  Array of completion choices (usually length 1)
+</ResponseField>
+
+<ResponseField name="choices[].index" type="integer">
+  Choice index (always 0)
+</ResponseField>
+
+<ResponseField name="choices[].message" type="object">
+  Generated message with:
+  - `role`: Always `"assistant"`
+  - `content`: Generated text
+  - `function_call`: (Optional) Function call object
+</ResponseField>
+
+<ResponseField name="choices[].finish_reason" type="string">
+  Reason generation stopped:
+  - `"stop"`: Natural completion or stop sequence
+  - `"length"`: Reached max_length
+  - `"function_call"`: Model wants to call a function
+</ResponseField>
+
+## Streaming Responses
+
+When `stream=true`, responses are sent as Server-Sent Events:
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "Count to 5"}],
+    "stream": true
+  }'
+```
+
+### Stream Response Format
+
+Each chunk is a JSON object:
+
+```json
+data: {"model":"gpt-3.5-turbo","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+
+data: {"model":"gpt-3.5-turbo","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"1"},"finish_reason":null}]}
+
+data: {"model":"gpt-3.5-turbo","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":", 2"},"finish_reason":null}]}
+
+data: {"model":"gpt-3.5-turbo","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+```
+
+## Function Calling
+
+The API supports function calling for tool use:
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "model": "gpt-3.5-turbo",
+        "messages": [
+            {"role": "user", "content": "What's the weather in Boston?"}
+        ],
+        "functions": [
+            {
+                "name": "get_weather",
+                "description": "Get current weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "City name"
+                        }
+                    },
+                    "required": ["location"]
+                }
+            }
+        ]
+    }
+)
+
+result = response.json()
+choice = result["choices"][0]
+
+if choice["finish_reason"] == "function_call":
+    func_call = choice["message"]["function_call"]
+    print(f"Function: {func_call['name']}")
+    print(f"Arguments: {func_call['arguments']}")
+```
+
+### Function Call Response
+
+```json
+{
+  "model": "gpt-3.5-turbo",
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I need to check the weather.",
+        "function_call": {
+          "name": "get_weather",
+          "arguments": "{\"location\": \"Boston\"}"
+        }
+      },
+      "finish_reason": "function_call"
+    }
+  ]
+}
+```
+
+## Python Client Example
+
+```python
+import openai
+
+# Configure client
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"  # Not required for local server
+
+# Create chat completion
+response = openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Explain neural networks simply."}
+    ],
+    temperature=0.7,
+    max_tokens=256
+)
+
+print(response.choices[0].message.content)
+```
+
+## Multi-turn Conversation
+
+```python
+import requests
+
+url = "http://localhost:8000/v1/chat/completions"
+messages = [{"role": "system", "content": "You are a helpful assistant."}]
+
+# First turn
+messages.append({"role": "user", "content": "Hello!"})
+response = requests.post(url, json={"model": "gpt-3.5-turbo", "messages": messages})
+assistant_msg = response.json()["choices"][0]["message"]
+messages.append(assistant_msg)
+
+print(f"Assistant: {assistant_msg['content']}")
+
+# Second turn
+messages.append({"role": "user", "content": "Tell me a joke"})
+response = requests.post(url, json={"model": "gpt-3.5-turbo", "messages": messages})
+assistant_msg = response.json()["choices"][0]["message"]
+messages.append(assistant_msg)
+
+print(f"Assistant: {assistant_msg['content']}")
+```
+
+## Error Responses
+
+### Invalid Request
+
+```json
+{
+  "detail": "Invalid request: Expecting at least one user message."
+}
+```
+
+### Status Codes
+
+- `200`: Success
+- `400`: Bad request (invalid parameters or message format)
+- `401`: Unauthorized (if API authentication is enabled)
+- `500`: Internal server error

@@ -1,0 +1,228 @@
+---
+title: Fine-tuning Overview
+description: Learn about the different fine-tuning methods available for Qwen models
+---
+
+Qwen supports multiple fine-tuning approaches to adapt the pretrained models to your specific tasks and domains. This guide provides an overview of the available methods and helps you choose the right approach for your use case.
+
+## Available Fine-tuning Methods
+
+Qwen provides three primary fine-tuning methods, each with different memory requirements and training characteristics:
+
+<CardGroup cols={3}>
+  <Card title="Full-Parameter" icon="server" href="/finetuning/full-parameter">
+    Update all model parameters for maximum performance
+  </Card>
+  <Card title="LoRA" icon="puzzle-piece" href="/finetuning/lora">
+    Efficient adapter-based training with low memory usage
+  </Card>
+  <Card title="Q-LoRA" icon="microchip" href="/finetuning/qlora">
+    LoRA on quantized models for minimal GPU requirements
+  </Card>
+</CardGroup>
+
+## Method Comparison
+
+Choose your fine-tuning approach based on available resources and requirements:
+
+| Method | GPU Memory (7B) | Training Speed | Performance | Use Case |
+|--------|----------------|----------------|-------------|----------|
+| **Full-Parameter** | ~43.5GB (2 GPUs) | Moderate | Highest | Production models with ample resources |
+| **LoRA** | ~20.1GB (1 GPU) | Fast | High | Balanced approach for most use cases |
+| **LoRA (emb)** | ~33.7GB (1 GPU) | Fast | High | Fine-tuning base models with new tokens |
+| **Q-LoRA** | ~11.5GB (1 GPU) | Slower | Good | Limited GPU memory scenarios |
+
+<Note>
+Memory statistics are for Qwen-7B with sequence length 256. Requirements increase with longer sequences.
+</Note>
+
+## Model Size Considerations
+
+### Memory Requirements by Model Size
+
+Minimum GPU memory for Q-LoRA fine-tuning (most memory-efficient method):
+
+<AccordionGroup>
+  <Accordion title="Qwen-1.8B">
+    - **Q-LoRA**: 5.8GB GPU memory
+    - **LoRA**: 6.7GB GPU memory
+    - **Full-parameter**: 43.5GB GPU memory (single GPU)
+    - Suitable for consumer GPUs (RTX 3090, 4090)
+  </Accordion>
+  
+  <Accordion title="Qwen-7B">
+    - **Q-LoRA**: 11.5GB GPU memory
+    - **LoRA**: 20.1GB GPU memory
+    - **Full-parameter**: Requires 2x A100 GPUs
+    - Recommended for professional workstations
+  </Accordion>
+  
+  <Accordion title="Qwen-14B">
+    - **Q-LoRA**: 18.7GB GPU memory
+    - **LoRA**: Requires multiple GPUs or DeepSpeed ZeRO-3
+    - **Full-parameter**: Requires 4+ A100 GPUs
+    - Enterprise-grade hardware required
+  </Accordion>
+  
+  <Accordion title="Qwen-72B">
+    - **Q-LoRA**: 61.4GB GPU memory (A100-80GB)
+    - **LoRA + DeepSpeed ZeRO-3**: 4x A100-80GB GPUs
+    - **Full-parameter**: Requires 8+ A100 GPUs
+    - Large-scale training infrastructure needed
+  </Accordion>
+</AccordionGroup>
+
+## Key Features
+
+### Training Framework Support
+
+All fine-tuning methods support:
+
+- **DeepSpeed**: Distributed training with ZeRO optimization (stages 2 and 3)
+- **FSDP**: Fully Sharded Data Parallel (alternative to DeepSpeed)
+- **Flash Attention 2**: Accelerated training and reduced memory usage
+- **Gradient Checkpointing**: Trade computation for memory savings
+
+### Supported Precision
+
+<CodeGroup>
+```bash BF16 (Recommended)
+# Full-parameter and LoRA support BF16
+--bf16 True
+```
+
+```bash FP16
+# Required for Q-LoRA due to quantization
+--fp16 True
+```
+</CodeGroup>
+
+<Warning>
+Q-LoRA **must** use FP16 due to AutoGPTQ quantization requirements. Full-parameter and LoRA can use either BF16 or FP16, but BF16 is recommended for consistency with pretraining.
+</Warning>
+
+## Training Script Overview
+
+Qwen provides production-ready training scripts in the `finetune/` directory:
+
+```bash
+finetune/
+├── finetune.py                      # Main training script
+├── finetune_ds.sh                   # Full-parameter (multi-GPU)
+├── finetune_lora_single_gpu.sh      # LoRA (single GPU)
+├── finetune_lora_ds.sh              # LoRA (multi-GPU/multi-node)
+├── finetune_qlora_single_gpu.sh     # Q-LoRA (single GPU)
+├── finetune_qlora_ds.sh             # Q-LoRA (multi-GPU)
+├── ds_config_zero2.json             # DeepSpeed ZeRO-2 config
+└── ds_config_zero3.json             # DeepSpeed ZeRO-3 config
+```
+
+## Data Format
+
+All fine-tuning methods use the same JSON conversation format:
+
+```json
+[
+  {
+    "id": "identity_0",
+    "conversations": [
+      {
+        "from": "user",
+        "value": "你好"
+      },
+      {
+        "from": "assistant",
+        "value": "我是一个语言模型，我叫通义千问。"
+      }
+    ]
+  }
+]
+```
+
+<Tip>
+The training script automatically applies the ChatML format with system prompts. You only need to provide the user and assistant messages.
+</Tip>
+
+## Quick Start
+
+<Steps>
+  <Step title="Install Dependencies">
+    Install required packages for your chosen method:
+    
+    ```bash
+    # For all methods
+    pip install -r requirements.txt
+    
+    # For LoRA and Q-LoRA
+    pip install "peft<0.8.0" deepspeed
+    
+    # For Q-LoRA quantization
+    pip install auto-gptq optimum
+    ```
+  </Step>
+  
+  <Step title="Prepare Training Data">
+    Create your training data in JSON format following the conversation structure above.
+  </Step>
+  
+  <Step title="Choose Fine-tuning Method">
+    Select the appropriate method based on your GPU memory and requirements:
+    
+    - **Limited GPU memory (< 12GB)**: Use Q-LoRA with smaller models
+    - **Single GPU (16-40GB)**: Use LoRA
+    - **Multiple GPUs**: Use LoRA or Full-parameter with DeepSpeed
+  </Step>
+  
+  <Step title="Launch Training">
+    Run the corresponding training script with your model and data paths.
+  </Step>
+</Steps>
+
+## Performance Benchmarks
+
+### Qwen-7B Fine-tuning Performance (Single A100-80GB)
+
+| Sequence Length | LoRA Memory | LoRA Speed | Q-LoRA Memory | Q-LoRA Speed |
+|----------------|-------------|------------|---------------|-------------|
+| 256 | 20.1GB | 1.2s/iter | 11.5GB | 3.0s/iter |
+| 512 | 20.4GB | 1.5s/iter | 11.5GB | 3.0s/iter |
+| 1024 | 21.5GB | 2.8s/iter | 12.3GB | 3.5s/iter |
+| 2048 | 23.8GB | 5.2s/iter | 13.9GB | 7.0s/iter |
+| 4096 | 29.7GB | 10.1s/iter | 16.9GB | 11.6s/iter |
+| 8192 | 36.6GB | 21.3s/iter | 23.5GB | 22.3s/iter |
+
+<Note>
+Batch size: 1, Gradient accumulation: 8, Flash Attention 2 enabled
+</Note>
+
+## Special Considerations
+
+### Base Model vs Chat Model
+
+When fine-tuning **base models** (e.g., Qwen-7B) with LoRA:
+
+- The embedding (`wte`) and output (`lm_head`) layers are automatically set as trainable
+- This is necessary for the model to learn ChatML format tokens
+- Requires more memory than fine-tuning chat models
+- Cannot use DeepSpeed ZeRO-3 with trainable embeddings
+
+**Chat models** (e.g., Qwen-7B-Chat) already understand ChatML format:
+
+- No additional trainable parameters needed
+- Lower memory requirements
+- Compatible with DeepSpeed ZeRO-3
+
+<Tip>
+For memory-constrained scenarios, prefer fine-tuning chat models with Q-LoRA rather than base models with LoRA.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Preparation" icon="database" href="/finetuning/data-preparation">
+    Learn how to prepare high-quality training data
+  </Card>
+  <Card title="Multi-node Training" icon="network-wired" href="/finetuning/multinode">
+    Scale training across multiple machines
+  </Card>
+</CardGroup>

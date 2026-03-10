@@ -1,0 +1,691 @@
+---
+title: LoRA Fine-tuning
+description: Efficient parameter-efficient fine-tuning using Low-Rank Adaptation
+---
+
+LoRA (Low-Rank Adaptation) is a parameter-efficient fine-tuning method that trains small adapter layers while keeping the pretrained model frozen. This dramatically reduces memory requirements and training time compared to full-parameter fine-tuning.
+
+## Overview
+
+LoRA achieves efficient fine-tuning by:
+
+- Training only **0.1-1%** of model parameters
+- Keeping original model weights frozen
+- Adding trainable low-rank decomposition matrices to attention layers
+- Enabling single-GPU training for 7B models
+- Allowing multiple adapters for different tasks
+
+<Tip>
+LoRA provides 90-95% of full fine-tuning performance with only 20-40% of the memory requirements.
+</Tip>
+
+## When to Use LoRA
+
+Choose LoRA when:
+
+- You have **single GPU** with 16-40GB memory
+- You need **fast iteration** on different tasks
+- You want to maintain **multiple task-specific adapters**
+- You need **quick deployment** without merging weights
+- Your task requires **moderate adaptation** from pretrained behavior
+
+## Hardware Requirements
+
+### Memory Requirements
+
+**Qwen-7B LoRA Fine-tuning (Single A100-80GB):**
+
+| Sequence Length | LoRA Memory | LoRA (emb) Memory | Speed |
+|----------------|-------------|-------------------|-------|
+| 256 | 20.1GB | 33.7GB | 1.2s/iter |
+| 512 | 20.4GB | 34.1GB | 1.5s/iter |
+| 1024 | 21.5GB | 35.2GB | 2.8s/iter |
+| 2048 | 23.8GB | 35.1GB | 5.2s/iter |
+| 4096 | 29.7GB | 39.2GB | 10.1s/iter |
+| 8192 | 36.6GB | 48.5GB | 21.3s/iter |
+
+<Note>
+**LoRA (emb)** refers to training with embedding and output layers as trainable parameters, required when fine-tuning base models with new tokens.
+</Note>
+
+### GPU Recommendations by Model Size
+
+| Model | Minimum GPU | Recommended GPU | Memory (LoRA) |
+|-------|-------------|-----------------|---------------|
+| Qwen-1.8B | RTX 3090 (24GB) | RTX 4090 (24GB) | 6.7GB |
+| Qwen-7B | RTX A6000 (48GB) | A100 (40GB/80GB) | 20.1GB |
+| Qwen-14B | A100 (40GB) | A100 (80GB) | ~35GB |
+| Qwen-72B | A100 (80GB) × 4 | A100 (80GB) × 4 | Requires ZeRO-3 |
+
+## Installation
+
+```bash
+# Install base requirements
+pip install -r requirements.txt
+
+# Install PEFT for LoRA support
+pip install "peft<0.8.0"
+
+# Install DeepSpeed (for distributed training)
+pip install deepspeed
+
+# Optional: Flash Attention 2 for speed
+git clone https://github.com/Dao-AILab/flash-attention
+cd flash-attention && pip install .
+```
+
+<Warning>
+Use `peft<0.8.0` to avoid tokenizer loading issues. Version 0.8.0+ has a known bug with Qwen tokenizer.
+</Warning>
+
+## LoRA Configuration
+
+LoRA adds trainable rank decomposition matrices to specific model layers:
+
+```python
+# From finetune.py lines 335-343
+lora_config = LoraConfig(
+    r=64,                                           # Rank of decomposition
+    lora_alpha=16,                                  # Scaling factor
+    target_modules=["c_attn", "c_proj", "w1", "w2"], # Target layers
+    lora_dropout=0.05,                              # Dropout rate
+    bias="none",                                    # Bias handling
+    task_type="CAUSAL_LM",
+    modules_to_save=None                            # Additional trainable modules
+)
+```
+
+### Parameter Explanation
+
+<ParamField path="r" type="int" default={64}>
+  **Rank** of the low-rank decomposition matrices. Higher rank = more capacity but more memory.
+  
+  - **r=8**: Very efficient, good for simple tasks
+  - **r=16-32**: Balanced, suitable for most tasks
+  - **r=64**: Higher capacity, recommended default
+  - **r=128**: Maximum capacity, for complex tasks
+</ParamField>
+
+<ParamField path="lora_alpha" type="int" default={16}>
+  **Scaling factor** for LoRA updates. Affects learning rate.
+  
+  Scaling = lora_alpha / r
+  
+  - Common pattern: lora_alpha = r/4 or r/2
+  - Does not affect trainable parameters
+  - Adjust if model underfits or overfits
+</ParamField>
+
+<ParamField path="target_modules" type="list" required>
+  **Model layers** where LoRA adapters are applied.
+  
+  For Qwen: `["c_attn", "c_proj", "w1", "w2"]`
+  
+  - `c_attn`: Attention query, key, value projections
+  - `c_proj`: Attention output projection
+  - `w1`, `w2`: Feed-forward network layers
+</ParamField>
+
+<ParamField path="lora_dropout" type="float" default={0.05}>
+  **Dropout** probability for LoRA layers (regularization).
+</ParamField>
+
+<ParamField path="modules_to_save" type="list" optional>
+  **Additional modules** to train beyond LoRA adapters.
+  
+  For base models: `["wte", "lm_head"]` (embedding and output layers)
+  
+  For chat models: `None` (not needed)
+</ParamField>
+
+## Single-GPU Training
+
+### Basic Training Script
+
+```bash finetune/finetune_lora_single_gpu.sh
+#!/bin/bash
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+MODEL="Qwen/Qwen-7B-Chat"
+DATA="path_to_data.json"
+
+export CUDA_VISIBLE_DEVICES=0
+
+python finetune.py \
+  --model_name_or_path $MODEL \
+  --data_path $DATA \
+  --bf16 True \
+  --output_dir output_qwen \
+  --num_train_epochs 5 \
+  --per_device_train_batch_size 2 \
+  --per_device_eval_batch_size 1 \
+  --gradient_accumulation_steps 8 \
+  --evaluation_strategy "no" \
+  --save_strategy "steps" \
+  --save_steps 1000 \
+  --save_total_limit 10 \
+  --learning_rate 3e-4 \
+  --weight_decay 0.1 \
+  --adam_beta2 0.95 \
+  --warmup_ratio 0.01 \
+  --lr_scheduler_type "cosine" \
+  --logging_steps 1 \
+  --report_to "none" \
+  --model_max_length 512 \
+  --lazy_preprocess True \
+  --gradient_checkpointing \
+  --use_lora
+```
+
+### Running Single-GPU Training
+
+<Steps>
+  <Step title="Prepare Your Data">
+    Create training data in JSON format:
+    
+    ```json
+    [
+      {
+        "id": "example_1",
+        "conversations": [
+          {"from": "user", "value": "Hello, how are you?"},
+          {"from": "assistant", "value": "I'm doing great! How can I help you today?"}
+        ]
+      }
+    ]
+    ```
+  </Step>
+  
+  <Step title="Launch Training">
+    ```bash
+    bash finetune/finetune_lora_single_gpu.sh \
+      -m Qwen/Qwen-7B-Chat \
+      -d train_data.json
+    ```
+  </Step>
+  
+  <Step title="Monitor Training">
+    Watch training progress:
+    
+    ```text
+    ***** Running training *****
+      Num examples = 1000
+      Num Epochs = 5
+      Total train batch size = 16
+    
+    {'loss': 1.234, 'learning_rate': 0.0003, 'epoch': 0.1}
+    {'loss': 0.876, 'learning_rate': 0.00029, 'epoch': 0.2}
+    ```
+    
+    The LoRA adapter is saved to `output_qwen/`.
+  </Step>
+</Steps>
+
+## Multi-GPU Training
+
+For faster training or larger models, use distributed LoRA training:
+
+```bash finetune/finetune_lora_ds.sh
+#!/bin/bash
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+GPUS_PER_NODE=$(python -c 'import torch; print(torch.cuda.device_count())')
+NNODES=${NNODES:-1}
+NODE_RANK=${NODE_RANK:-0}
+MASTER_ADDR=${MASTER_ADDR:-localhost}
+MASTER_PORT=${MASTER_PORT:-6001}
+
+MODEL="Qwen/Qwen-7B-Chat"
+DATA="path_to_data.json"
+DS_CONFIG_PATH="finetune/ds_config_zero2.json"
+
+DISTRIBUTED_ARGS="
+    --nproc_per_node $GPUS_PER_NODE \
+    --nnodes $NNODES \
+    --node_rank $NODE_RANK \
+    --master_addr $MASTER_ADDR \
+    --master_port $MASTER_PORT
+"
+
+torchrun $DISTRIBUTED_ARGS finetune.py \
+    --model_name_or_path $MODEL \
+    --data_path $DATA \
+    --bf16 True \
+    --output_dir output_qwen \
+    --num_train_epochs 5 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 1 \
+    --gradient_accumulation_steps 8 \
+    --evaluation_strategy "no" \
+    --save_strategy "steps" \
+    --save_steps 1000 \
+    --save_total_limit 10 \
+    --learning_rate 3e-4 \
+    --weight_decay 0.1 \
+    --adam_beta2 0.95 \
+    --warmup_ratio 0.01 \
+    --lr_scheduler_type "cosine" \
+    --logging_steps 1 \
+    --report_to "none" \
+    --model_max_length 512 \
+    --lazy_preprocess True \
+    --use_lora \
+    --gradient_checkpointing \
+    --deepspeed ${DS_CONFIG_PATH}
+```
+
+### DeepSpeed ZeRO-2 Configuration
+
+```json finetune/ds_config_zero2.json
+{
+    "bf16": {
+        "enabled": "auto"
+    },
+    "optimizer": {
+        "type": "AdamW",
+        "params": {
+            "lr": "auto",
+            "betas": "auto",
+            "eps": "auto",
+            "weight_decay": "auto"
+        }
+    },
+    "zero_optimization": {
+        "stage": 2,
+        "offload_optimizer": {
+            "device": "none",
+            "pin_memory": true
+        },
+        "allgather_partitions": true,
+        "allgather_bucket_size": 2e8,
+        "overlap_comm": true,
+        "reduce_scatter": true,
+        "reduce_bucket_size": 2e8,
+        "contiguous_gradients": true
+    },
+    "gradient_accumulation_steps": "auto",
+    "gradient_clipping": "auto",
+    "train_batch_size": "auto",
+    "train_micro_batch_size_per_gpu": "auto"
+}
+```
+
+<Note>
+**ZeRO-2** shards optimizer states and gradients across GPUs, but keeps model parameters replicated. This is ideal for LoRA since adapter parameters are small.
+</Note>
+
+## Base Model vs Chat Model
+
+Key differences when fine-tuning base models vs chat models:
+
+### Fine-tuning Chat Models (Recommended)
+
+```bash
+# Qwen-7B-Chat already knows ChatML format
+python finetune.py \
+  --model_name_or_path Qwen/Qwen-7B-Chat \
+  --use_lora \
+  --data_path data.json
+```
+
+**Advantages:**
+- Lower memory usage (no extra trainable parameters)
+- Compatible with DeepSpeed ZeRO-3
+- No special handling needed
+- Recommended for most use cases
+
+### Fine-tuning Base Models
+
+```python
+# From finetune.py lines 331-334
+is_chat_model = 'chat' in model_args.model_name_or_path.lower()
+if training_args.use_lora and not lora_args.q_lora and not is_chat_model:
+    modules_to_save = ["wte", "lm_head"]  # Embedding and output layers
+```
+
+When fine-tuning base models:
+
+- **Automatically enables** training of embedding (`wte`) and output (`lm_head`) layers
+- **Required** for model to learn ChatML special tokens
+- **Higher memory usage** (~13.6GB extra for Qwen-7B)
+- **Cannot use ZeRO-3** (must use ZeRO-2)
+
+<Warning>
+Fine-tuning base models with LoRA requires significantly more memory. Consider using chat models instead.
+</Warning>
+
+## Loading and Using LoRA Adapters
+
+### Load Adapter for Inference
+
+```python
+from peft import AutoPeftModelForCausalLM
+from transformers import AutoTokenizer
+
+# Load model with LoRA adapter
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "output_qwen",  # Path to adapter directory
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "output_qwen",
+    trust_remote_code=True
+)
+
+# Use the model
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+### Merge Adapter with Base Model
+
+For deployment, you can merge the adapter into the base model:
+
+```python
+from peft import AutoPeftModelForCausalLM
+
+# Load model with adapter
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "output_qwen",
+    device_map="auto",
+    trust_remote_code=True
+)
+
+# Merge and save
+merged_model = model.merge_and_unload()
+merged_model.save_pretrained(
+    "merged_model",
+    max_shard_size="2048MB",
+    safe_serialization=True
+)
+
+# Save tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    "output_qwen",
+    trust_remote_code=True
+)
+tokenizer.save_pretrained("merged_model")
+```
+
+<Warning>
+After saving merged model, manually copy `*.cu` and `*.cpp` files if you need KV cache quantization support.
+</Warning>
+
+### Switch Between Multiple Adapters
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+# Load base model
+base_model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+)
+
+# Load adapter 1
+model = PeftModel.from_pretrained(base_model, "adapter_1")
+response1, _ = model.chat(tokenizer, "Test query", history=None)
+
+# Switch to adapter 2
+model.load_adapter("adapter_2")
+response2, _ = model.chat(tokenizer, "Test query", history=None)
+
+print(f"Adapter 1: {response1}")
+print(f"Adapter 2: {response2}")
+```
+
+## Hyperparameter Tuning
+
+### Learning Rate
+
+```bash
+--learning_rate 3e-4
+```
+
+LoRA uses **higher learning rates** than full fine-tuning:
+
+- **Conservative**: 1e-4 (safer for base models)
+- **Standard**: 3e-4 (recommended for chat models)
+- **Aggressive**: 5e-4 (fast convergence, watch for instability)
+
+<Tip>
+LoRA adapters benefit from higher learning rates because only a small subset of parameters is being trained.
+</Tip>
+
+### LoRA Rank (r)
+
+Adjust based on task complexity:
+
+<CodeGroup>
+```bash Simple Tasks
+# Simple classification, minor style changes
+--lora_r 8 \
+--lora_alpha 4
+```
+
+```bash Standard Tasks
+# Most fine-tuning scenarios
+--lora_r 64 \
+--lora_alpha 16
+```
+
+```bash Complex Tasks
+# Significant behavior changes, complex reasoning
+--lora_r 128 \
+--lora_alpha 32
+```
+</CodeGroup>
+
+### Batch Size Optimization
+
+```bash
+--per_device_train_batch_size 2 \
+--gradient_accumulation_steps 8
+```
+
+Adjust based on GPU memory:
+
+| GPU Memory | Batch Size | Grad Accum | Effective Batch |
+|------------|------------|------------|-----------------|
+| 16GB | 1 | 16 | 16 |
+| 24GB | 2 | 8 | 16 |
+| 40GB | 4 | 4 | 16 |
+| 80GB | 8 | 2 | 16 |
+
+## Advanced Techniques
+
+### Custom Target Modules
+
+Target specific layers for your use case:
+
+```python
+# Fine-tune only attention layers
+lora_config = LoraConfig(
+    target_modules=["c_attn", "c_proj"],
+    r=64,
+    lora_alpha=16
+)
+
+# Fine-tune all linear layers
+lora_config = LoraConfig(
+    target_modules=["c_attn", "c_proj", "w1", "w2", "lm_head"],
+    r=64,
+    lora_alpha=16
+)
+```
+
+### LoRA with Custom Tokens
+
+If adding new tokens to vocabulary:
+
+```python
+# Add custom tokens
+tokenizer.add_tokens(["[CUSTOM1]", "[CUSTOM2]"])
+model.resize_token_embeddings(len(tokenizer))
+
+# Configure LoRA to train new embeddings
+lora_config = LoraConfig(
+    r=64,
+    lora_alpha=16,
+    target_modules=["c_attn", "c_proj", "w1", "w2"],
+    modules_to_save=["wte", "lm_head"]  # Train embedding layer
+)
+```
+
+### Quantization After LoRA Training
+
+Quantize your merged LoRA model for deployment:
+
+```bash
+# First merge the adapter
+python merge_lora.py \
+  --adapter_path output_qwen \
+  --output_path merged_model
+
+# Then quantize
+python run_gptq.py \
+  --model_name_or_path merged_model \
+  --data_path calibration_data.json \
+  --out_path merged_model_int4 \
+  --bits 4
+```
+
+See [Q-LoRA documentation](/finetuning/qlora) for details.
+
+## Monitoring Training
+
+### TensorBoard Integration
+
+```bash
+python finetune.py \
+  --use_lora \
+  --report_to "tensorboard" \
+  --logging_dir ./logs
+```
+
+View training metrics:
+
+```bash
+tensorboard --logdir ./logs
+```
+
+### Weights & Biases Integration
+
+```bash
+pip install wandb
+wandb login
+
+python finetune.py \
+  --use_lora \
+  --report_to "wandb" \
+  --run_name "qwen-lora-experiment"
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="PEFT Version Errors">
+    **Issue**: `ValueError: Tokenizer class QWenTokenizer does not exist`
+    
+    **Solution**: Downgrade PEFT
+    ```bash
+    pip install "peft<0.8.0"
+    ```
+  </Accordion>
+  
+  <Accordion title="Out of Memory During Training">
+    **Solutions**:
+    1. Reduce `per_device_train_batch_size` to 1
+    2. Reduce `model_max_length` (e.g., 512 → 256)
+    3. Enable gradient checkpointing: `--gradient_checkpointing`
+    4. Reduce LoRA rank: `--lora_r 32` or `--lora_r 16`
+    5. Use Q-LoRA instead (see [Q-LoRA guide](/finetuning/qlora))
+  </Accordion>
+  
+  <Accordion title="Adapter Not Learning (High Loss)">
+    **Possible causes**:
+    - Learning rate too low: Try `--learning_rate 5e-4`
+    - LoRA rank too small: Increase `--lora_r 128`
+    - Data quality issues: Review training samples
+    - Insufficient training: Increase epochs
+    
+    **Debug**:
+    ```python
+    # Check trainable parameters
+    model.print_trainable_parameters()
+    # Expected output: "trainable params: X || all params: Y || trainable%: Z%"
+    ```
+  </Accordion>
+  
+  <Accordion title="DeepSpeed Compatibility Issues">
+    **Issue**: ZeRO-3 incompatible with base model LoRA
+    
+    **Solution**: Use ZeRO-2 or switch to chat model
+    ```bash
+    --deepspeed finetune/ds_config_zero2.json
+    # OR
+    --model_name_or_path Qwen/Qwen-7B-Chat  # Use chat model
+    ```
+  </Accordion>
+  
+  <Accordion title="Missing Files After Saving">
+    **Issue**: `*.cu` and `*.cpp` files missing from saved adapter
+    
+    **Solution**: Manually copy from source
+    ```bash
+    cp Qwen/Qwen-7B-Chat/*.cu output_qwen/
+    cp Qwen/Qwen-7B-Chat/*.cpp output_qwen/
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Comparison
+
+### LoRA vs Full-Parameter (Qwen-7B)
+
+| Metric | Full-Parameter | LoRA | Difference |
+|--------|---------------|------|------------|
+| GPU Memory | ~80GB (2 GPUs) | 20.1GB (1 GPU) | **4x reduction** |
+| Training Speed | 2.5s/iter | 1.2s/iter | **2x faster** |
+| Trainable Params | 7B (100%) | 70M (1%) | **100x fewer** |
+| Final Performance | 100% | 90-95% | **Minimal loss** |
+
+### LoRA vs Q-LoRA
+
+| Metric | LoRA | Q-LoRA |
+|--------|------|--------|
+| GPU Memory (7B) | 20.1GB | 11.5GB |
+| Training Speed | 1.2s/iter | 3.0s/iter |
+| Model Quality | Higher | Slightly lower |
+| Use Case | Standard training | Memory-constrained |
+
+## Best Practices
+
+<Check>**Do's**</Check>
+- Use chat models when possible for lower memory usage
+- Start with default LoRA config (r=64, alpha=16)
+- Enable gradient checkpointing for memory savings
+- Monitor training loss to detect convergence
+- Save multiple checkpoints for checkpoint selection
+
+<Check>**Don'ts**</Check>
+- Don't use ZeRO-3 with base model LoRA (embedding trainable)
+- Don't use excessively high learning rates (>5e-4)
+- Don't skip validation data for complex tasks
+- Don't merge adapters for Q-LoRA (not supported)
+- Don't forget to copy support files (*.cu, *.cpp) when needed
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Q-LoRA Training" icon="microchip" href="/finetuning/qlora">
+    Further reduce memory with quantization
+  </Card>
+  <Card title="Multi-node Training" icon="network-wired" href="/finetuning/multinode">
+    Scale LoRA training across multiple machines
+  </Card>
+</CardGroup>

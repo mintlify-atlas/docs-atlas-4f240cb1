@@ -1,0 +1,635 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Qwen models
+---
+
+This guide covers common issues you may encounter when working with Qwen models and their solutions.
+
+## Installation Issues
+
+### Flash Attention Installation Fails
+
+**Symptoms:**
+- Compilation errors when installing flash-attention
+- CUDA version mismatch errors
+- Missing CUDA development files
+
+**Solutions:**
+
+<Steps>
+  <Step title="Verify GPU compatibility">
+    Flash Attention only works on:
+    - Turing architecture: T4, RTX 2080, etc.
+    - Ampere architecture: A100, RTX 3090, etc.
+    - Ada architecture: RTX 4090, etc.
+    - Hopper architecture: H100, etc.
+
+    Check your GPU:
+    ```bash
+    nvidia-smi --query-gpu=name --format=csv
+    ```
+  </Step>
+
+  <Step title="Verify CUDA version">
+    Flash Attention requires CUDA 11.4+:
+    ```bash
+    nvidia-smi  # Check Driver Version and CUDA Version
+    nvcc --version  # Check installed CUDA toolkit
+    ```
+  </Step>
+
+  <Step title="Install from source">
+    ```bash
+    git clone https://github.com/Dao-AILab/flash-attention
+    cd flash-attention
+    pip install .
+    ```
+  </Step>
+
+  <Step title="Alternative: Skip Flash Attention">
+    Flash Attention is **optional**. If installation continues to fail, proceed without it:
+    ```python
+    # Models will work fine without flash attention
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True,
+        use_flash_attn=False  # Explicitly disable
+    ).eval()
+    ```
+  </Step>
+</Steps>
+
+### Package Dependency Conflicts
+
+**Error:** Version conflicts between transformers, peft, optimum, auto-gptq
+
+**Recommended versions:**
+
+```bash
+# For torch 2.1+
+pip install torch>=2.1
+pip install auto-gptq>=0.5.1
+pip install transformers>=4.35.0
+pip install optimum>=1.14.0
+pip install "peft>=0.6.1,<0.8.0"
+
+# For torch 2.0.x
+pip install "torch>=2.0,<2.1"
+pip install "auto-gptq<0.5.0"
+pip install "transformers<4.35.0"
+pip install "optimum<1.14.0"
+pip install "peft>=0.5.0,<0.6.0"
+```
+
+### Git LFS Files Not Downloaded
+
+**Symptoms:**
+- `qwen.tiktoken` is only a few bytes (text pointer)
+- Model files are text pointers instead of actual binaries
+- "File not found" errors for model checkpoints
+
+**Solution:**
+
+```bash
+# Install git-lfs
+git lfs install
+
+# Pull LFS files
+cd /path/to/Qwen
+git lfs pull
+
+# Verify qwen.tiktoken is ~2MB, not a text file
+ls -lh qwen.tiktoken
+```
+
+## Model Loading Issues
+
+### Model Won't Load Locally
+
+**Checklist:**
+
+<Accordion title="1. Verify all files are present">
+```bash
+# Check for all required files:
+ls -lh model_directory/
+
+# Required files:
+# - config.json
+# - generation_config.json  
+# - model*.safetensors (or model*.bin)
+# - tokenizer_config.json
+# - qwen.tiktoken
+# - modeling_qwen.py
+# - tokenization_qwen.py
+# - configuration_qwen.py
+```
+</Accordion>
+
+<Accordion title="2. Check code version">
+```bash
+cd Qwen
+git pull origin main
+
+# Verify you're on latest version
+git log -1
+```
+</Accordion>
+
+<Accordion title="3. Set trust_remote_code=True">
+```python
+# ALWAYS required for Qwen models
+model = AutoModelForCausalLM.from_pretrained(
+    "path/to/model",
+    trust_remote_code=True  # This is required!
+)
+```
+</Accordion>
+
+<Accordion title="4. Verify checkpoint integrity">
+```python
+import torch
+
+# Test loading a checkpoint file
+checkpoint = torch.load("model.safetensors", map_location="cpu")
+print(f"Checkpoint loaded successfully, {len(checkpoint)} keys")
+```
+</Accordion>
+
+### Out of Memory (OOM) When Loading
+
+**Symptoms:**
+- `RuntimeError: CUDA out of memory`
+- System freezes when loading model
+- Model loads but crashes during inference
+
+**Solutions:**
+
+<Steps>
+  <Step title="Use quantized models">
+    ```python
+    # Int4 uses ~50% less memory than Int8, ~75% less than BF16
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat-Int4",
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+
+  <Step title="Enable device_map='auto'">
+    ```python
+    # Automatically distributes model across available devices
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",  # Important for multi-GPU
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+
+  <Step title="Use CPU offloading">
+    ```python
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        offload_folder="offload",  # Offload to disk
+        offload_state_dict=True,
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+
+  <Step title="Switch to smaller model">
+    If none of the above work, use a smaller model size:
+    - Qwen-7B → Qwen-1.8B
+    - Qwen-14B → Qwen-7B
+    - Qwen-72B → Qwen-14B or Qwen-7B
+  </Step>
+</Steps>
+
+## Inference Issues
+
+### Gibberish or Garbled Output
+
+**Problem 1: Using base model instead of chat model**
+
+```python
+# Wrong - base model doesn't follow instructions
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen-7B", ...)
+
+# Correct - use chat model
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen-7B-Chat", ...)
+```
+
+**Problem 2: Incomplete UTF-8 sequences in streaming**
+
+```python
+# Solution: Update to latest code
+cd Qwen
+git pull
+
+# Or set error handling
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    errors="ignore"  # or "replace"
+)
+```
+
+**Problem 3: Wrong decoding parameters**
+
+```python
+# Use appropriate sampling parameters
+response, history = model.chat(
+    tokenizer,
+    "Your question",
+    history=history,
+    temperature=0.7,  # Lower = more deterministic
+    top_p=0.9,
+    top_k=50
+)
+```
+
+### Model Not Following Instructions
+
+**Check 1: Using correct model type**
+
+```python
+# Verify you loaded the -Chat model
+print(model.config.name_or_path)  
+# Should contain "-Chat"
+```
+
+**Check 2: Using correct prompt format**
+
+For Qwen-Chat, use the `chat()` method:
+
+```python
+# Correct
+response, history = model.chat(tokenizer, "Hello", history=None)
+
+# Wrong - don't use generate() directly for chat models
+response = model.generate(...)  
+```
+
+**Check 3: System prompt (for Qwen-72B-Chat and Qwen-1.8B-Chat)**
+
+```python
+# Use system prompt for better instruction following
+response, history = model.chat(
+    tokenizer,
+    "Your question",
+    history=None,
+    system="You are a helpful assistant."
+)
+```
+
+### Slow Inference Speed
+
+**Diagnosis:**
+
+```python
+import time
+
+start = time.time()
+response, history = model.chat(tokenizer, "Hello", history=None)
+end = time.time()
+
+print(f"Time: {end - start:.2f}s")
+print(f"Tokens: {len(tokenizer.encode(response))}")
+print(f"Speed: {len(tokenizer.encode(response)) / (end - start):.2f} tokens/s")
+```
+
+**Solutions:**
+
+<Accordion title="Enable Flash Attention">
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    use_flash_attn=True  # Requires compatible GPU
+).eval()
+```
+</Accordion>
+
+<Accordion title="Use quantized models">
+```python
+# Int4 is faster than BF16
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+</Accordion>
+
+<Accordion title="Update to latest code">
+```bash
+cd Qwen
+git pull
+pip install -r requirements.txt --upgrade
+```
+</Accordion>
+
+<Accordion title="Use vLLM for deployment">
+vLLM provides optimized inference:
+```bash
+pip install vllm
+
+# See deployment documentation for details
+```
+</Accordion>
+
+### Poor Performance on Long Context
+
+**Enable NTK and LogN attention:**
+
+```python
+# Check config.json
+import json
+
+with open("config.json") as f:
+    config = json.load(f)
+
+print("use_dynamic_ntk:", config.get("use_dynamic_ntk"))  # Should be true
+print("use_logn_attn:", config.get("use_logn_attn"))      # Should be true
+```
+
+If false, manually enable:
+
+```python
+model.config.use_dynamic_ntk = True
+model.config.use_logn_attn = True
+```
+
+## Fine-tuning Issues
+
+### OOM During Training
+
+**Solutions in order of effectiveness:**
+
+<Steps>
+  <Step title="Use Q-LoRA instead of LoRA">
+    ```bash
+    # Q-LoRA uses quantized base model
+    bash finetune/finetune_qlora_single_gpu.sh
+    ```
+    Saves ~40-50% memory compared to LoRA.
+  </Step>
+
+  <Step title="Reduce batch size, increase gradient accumulation">
+    ```bash
+    # In training script:
+    --per_device_train_batch_size 1 \
+    --gradient_accumulation_steps 16
+    ```
+  </Step>
+
+  <Step title="Enable gradient checkpointing">
+    ```bash
+    --gradient_checkpointing True
+    ```
+  </Step>
+
+  <Step title="Use DeepSpeed ZeRO">
+    ```bash
+    # For LoRA training
+    bash finetune/finetune_lora_ds.sh
+    ```
+  </Step>
+
+  <Step title="Reduce sequence length">
+    ```bash
+    --model_max_length 1024  # Instead of 2048
+    ```
+  </Step>
+</Steps>
+
+### Training Loss Not Decreasing
+
+**Checklist:**
+
+<Accordion title="1. Verify data format">
+```json
+// Each sample should look like:
+{
+  "id": "unique_id",
+  "conversations": [
+    {"from": "user", "value": "Question"},
+    {"from": "assistant", "value": "Answer"}
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="2. Check learning rate">
+```bash
+# Try different learning rates
+--learning_rate 1e-5  # Default
+--learning_rate 5e-6  # If loss explodes
+--learning_rate 2e-5  # If loss doesn't move
+```
+</Accordion>
+
+<Accordion title="3. Verify model is in training mode">
+```python
+print(model.training)  # Should be True during training
+```
+</Accordion>
+
+<Accordion title="4. Check if parameters are frozen">
+```python
+for name, param in model.named_parameters():
+    if param.requires_grad:
+        print(f"Trainable: {name}")
+```
+</Accordion>
+
+### Quantized Model Finetuning Issues
+
+**Problem: Can't load LoRA adapter after Q-LoRA training**
+
+```python
+# Solution: Load with AutoPeftModelForCausalLM
+from peft import AutoPeftModelForCausalLM
+
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "path/to/adapter",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+**Problem: Missing .cpp and .cu files after saving**
+
+Manually copy these files from the original model directory:
+- `cache_autogptq_cuda_256.cpp`
+- `cache_autogptq_cuda_kernel_256.cu`
+- Other `.cpp` and `.cu` files
+
+## Quantization Issues
+
+### AutoGPTQ Installation Fails
+
+**Check PyTorch and CUDA compatibility:**
+
+```bash
+python -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+```
+
+**Install matching auto-gptq wheel:**
+
+```bash
+# For torch 2.1 + CUDA 11.8
+pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu118/
+
+# For torch 2.0 + CUDA 11.8  
+pip install "auto-gptq<0.5.0" --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu118/
+```
+
+See [AutoGPTQ repo](https://github.com/PanQiWei/AutoGPTQ) for more wheels.
+
+### Quantized Model Slower Than Expected
+
+**Note:** Loading with `AutoModelForCausalLM.from_pretrained()` is ~20% slower than the autogptq library directly.
+
+This is a known issue reported to HuggingFace team.
+
+**Workaround:** Use the autogptq library directly for maximum speed.
+
+## Tool Usage and ReAct Issues
+
+### Plugin Not Being Called
+
+**Check prompt format:**
+
+```python
+# Make sure to use proper ReAct prompt format
+# See examples/react_prompt.md for details
+
+prompt = """Answer the following questions as best you can. You have access to the following tools:
+
+{tool_descriptions}
+
+Use the following format:
+
+Question: the input question
+Thought: think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (repeat Thought/Action/Action Input/Observation as needed)
+Thought: I now know the final answer
+Final Answer: the final answer
+
+Question: {question}
+Thought:"""
+```
+
+### HuggingFace Agent Issues
+
+**Verify Qwen-Chat is being used:**
+
+```python
+from transformers import HfAgent
+
+agent = HfAgent(
+    "Qwen/Qwen-7B-Chat",  # Must be -Chat model
+    trust_remote_code=True
+)
+```
+
+## Docker Issues
+
+### Container Fails to Start
+
+**Check GPU availability:**
+
+```bash
+# Test NVIDIA Docker runtime
+docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+```
+
+**Verify sufficient resources:**
+
+```bash
+# Check available memory
+free -h
+
+# Check available disk space
+df -h
+```
+
+### Slow Image Download
+
+Use a Docker registry mirror (especially for users in China):
+
+```bash
+# Configure Docker daemon.json
+sudo vim /etc/docker/daemon.json
+```
+
+Add:
+```json
+{
+  "registry-mirrors": ["https://your-mirror.com"]
+}
+```
+
+Restart Docker:
+```bash
+sudo systemctl restart docker
+```
+
+## Platform-Specific Issues
+
+### Windows
+
+**Long path issues:**
+
+```bash
+# Enable long paths in Windows
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+```
+
+**WSL2 recommended** for better compatibility:
+
+```bash
+wsl --install
+wsl --set-default-version 2
+```
+
+### macOS
+
+**Metal/MPS not officially supported**. Use CPU or cloud deployment.
+
+```python
+# CPU-only on macOS
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cpu",
+    trust_remote_code=True
+).eval()
+```
+
+## Getting Help
+
+If issues persist after trying these solutions:
+
+1. **Search existing issues**: [GitHub Issues](https://github.com/QwenLM/Qwen/issues)
+2. **Check the FAQ**: [FAQ](/resources/faq)
+3. **Open a new issue** with:
+   - Full error traceback
+   - Environment details (`python --version`, `pip list`, `nvidia-smi`)
+   - Minimal reproducible code
+   - Steps already tried
+
+4. **Join the community**:
+   - [Discord](https://discord.gg/CV4E9rpNSD)
+   - WeChat (see main README)
+
+<Note>
+When reporting issues, please provide as much context as possible and use English when possible to help more people understand and assist.
+</Note>

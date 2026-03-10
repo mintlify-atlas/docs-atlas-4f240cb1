@@ -1,0 +1,518 @@
+---
+title: 'Multi-GPU Inference'
+description: 'Scale Qwen inference across multiple GPUs for large models'
+---
+
+## Overview
+
+Multi-GPU inference allows you to run larger Qwen models (like Qwen-72B) or handle higher throughput by distributing computation across multiple GPUs. This guide covers different approaches for multi-GPU deployment.
+
+## Why Multi-GPU?
+
+<CardGroup cols={2}>
+  <Card title="Large Models" icon="brain">
+    Run 72B parameter models that don't fit on a single GPU
+  </Card>
+  <Card title="Higher Throughput" icon="gauge-high">
+    Process more requests simultaneously
+  </Card>
+  <Card title="Faster Inference" icon="bolt">
+    Parallel processing reduces latency
+  </Card>
+  <Card title="Better Utilization" icon="chart-line">
+    Use available GPU resources efficiently
+  </Card>
+</CardGroup>
+
+## Automatic Multi-GPU (Transformers)
+
+The simplest approach uses Transformers' automatic device mapping:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-72B-Chat", 
+    trust_remote_code=True
+)
+
+# Automatic distribution across all available GPUs
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    device_map="auto",  # Automatically distributes layers
+    trust_remote_code=True
+).eval()
+
+# Use as normal
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+<Note>
+  With `device_map="auto"`, Transformers automatically distributes model layers across available GPUs to maximize memory efficiency.
+</Note>
+
+### How It Works
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Check available GPUs
+print(f"Available GPUs: {torch.cuda.device_count()}")
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-14B-Chat", 
+    trust_remote_code=True
+)
+
+# Load with automatic distribution
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-14B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Inspect device map
+print("\nLayer distribution:")
+for name, param in model.named_parameters():
+    if param.device.type == 'cuda':
+        print(f"{name}: GPU {param.device.index}")
+```
+
+## Manual Device Mapping
+
+For fine-grained control, specify device placement manually:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-14B-Chat", 
+    trust_remote_code=True
+)
+
+# Define custom device map
+device_map = {
+    'transformer.wte': 0,
+    'transformer.h.0': 0,
+    'transformer.h.1': 0,
+    'transformer.h.2': 1,
+    'transformer.h.3': 1,
+    # ... continue for all layers
+    'transformer.ln_f': 1,
+    'lm_head': 1,
+}
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-14B-Chat",
+    device_map=device_map,
+    trust_remote_code=True
+).eval()
+```
+
+<Warning>
+  Manual device mapping requires careful balancing to avoid memory issues on any single GPU. Use automatic mapping unless you have specific requirements.
+</Warning>
+
+## vLLM for Production
+
+For production deployments, vLLM provides optimized multi-GPU inference with tensor parallelism:
+
+### Installation
+
+```bash
+pip install vllm
+```
+
+### Basic Usage
+
+```python
+from vllm import LLM, SamplingParams
+
+# Initialize vLLM with tensor parallelism
+llm = LLM(
+    model="Qwen/Qwen-72B-Chat",
+    tensor_parallel_size=2,  # Use 2 GPUs
+    trust_remote_code=True,
+    dtype="bfloat16",
+    gpu_memory_utilization=0.95
+)
+
+# Configure sampling
+sampling_params = SamplingParams(
+    temperature=0.7,
+    top_p=0.8,
+    max_tokens=512
+)
+
+# Generate
+prompts = ["Tell me about AI", "Explain quantum computing"]
+outputs = llm.generate(prompts, sampling_params)
+
+for output in outputs:
+    print(f"Prompt: {output.prompt}")
+    print(f"Response: {output.outputs[0].text}")
+    print()
+```
+
+### vLLM Wrapper
+
+Qwen provides a vLLM wrapper for chat-style inference:
+
+```python vllm_wrapper.py
+from transformers import PreTrainedTokenizer, GenerationConfig
+from typing import Optional, List, Tuple
+import copy
+from transformers import AutoTokenizer
+from packaging import version
+
+HistoryType = List[Tuple[str, str]]
+
+class vLLMWrapper:
+    def __init__(self,
+               model_dir: str,
+               trust_remote_code: bool = True,
+               tensor_parallel_size: int = 1,
+               gpu_memory_utilization: float = 0.98,
+               dtype: str = "bfloat16",
+               **kwargs):
+
+        if dtype not in ("bfloat16", "float16", "float32"):
+            raise ValueError(f"Unsupported dtype: {dtype}")
+
+        # Build generation_config
+        self.generation_config = GenerationConfig.from_pretrained(
+            model_dir, trust_remote_code=trust_remote_code
+        )
+
+        # Build tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_dir, trust_remote_code=True
+        )
+        self.tokenizer.eos_token_id = self.generation_config.eos_token_id
+
+        from vllm import LLM
+        import vllm
+        
+        if version.parse(vllm.__version__) >= version.parse("0.2.2"):
+            self.__vllm_support_repetition_penalty = True
+        else:
+            self.__vllm_support_repetition_penalty = False
+
+        quantization = getattr(kwargs, 'quantization', None)
+
+        self.model = LLM(
+            model=model_dir,
+            tokenizer=model_dir,
+            tensor_parallel_size=tensor_parallel_size,
+            trust_remote_code=trust_remote_code,
+            quantization=quantization,
+            gpu_memory_utilization=gpu_memory_utilization,
+            dtype=dtype
+        )
+
+    def chat(self,
+        query: str,
+        history: Optional[HistoryType],
+        tokenizer: PreTrainedTokenizer = None,
+        system: str = "You are a helpful assistant.",
+        generation_config: Optional[GenerationConfig] = None,
+        **kwargs):
+        
+        generation_config = generation_config if generation_config is not None else self.generation_config
+        tokenizer = self.tokenizer if tokenizer is None else tokenizer
+
+        if history is None:
+            history = []
+        else:
+            history = copy.deepcopy(history)
+
+        from vllm.sampling_params import SamplingParams
+        
+        sampling_kwargs = {
+            "stop_token_ids": [self.generation_config.eos_token_id],
+            "early_stopping": False,
+            "top_p": generation_config.top_p,
+            "top_k": -1 if generation_config.top_k == 0 else generation_config.top_k,
+            "temperature": generation_config.temperature,
+            "max_tokens": generation_config.max_new_tokens,
+        }
+        
+        if self.__vllm_support_repetition_penalty:
+            sampling_kwargs["repetition_penalty"] = generation_config.repetition_penalty
+        
+        sampling_params = SamplingParams(**sampling_kwargs)
+
+        # Format prompt with history
+        prompt = self._make_context(query, history, system)
+        
+        req_outputs = self.model.generate(
+            [prompt],
+            sampling_params=sampling_params
+        )
+        
+        response = req_outputs[0].outputs[0].text
+        history.append((query, response))
+
+        return response, history
+
+    def _make_context(self, query, history, system):
+        """Format query with history into prompt."""
+        prompt = f"{system}\n\n"
+        for q, r in history:
+            prompt += f"User: {q}\nAssistant: {r}\n\n"
+        prompt += f"User: {query}\nAssistant:"
+        return prompt
+
+# Usage
+if __name__ == '__main__':
+    model_dir = 'Qwen/Qwen-72B-Chat'
+    tensor_parallel_size = 2
+
+    model = vLLMWrapper(
+        model_dir,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+
+    response, history = model.chat(
+        query="你好",
+        history=None
+    )
+    print(response)
+    
+    response, history = model.chat(
+        query="给我讲一个年轻人奋斗创业最终取得成功的故事。",
+        history=history
+    )
+    print(response)
+    
+    response, history = model.chat(
+        query="给这个故事起一个标题",
+        history=history
+    )
+    print(response)
+```
+
+<Note>
+  See examples/vllm_wrapper.py:224-239 for the complete implementation.
+</Note>
+
+## GPU Memory Requirements
+
+Estimated memory requirements for different configurations:
+
+### Qwen-7B
+
+| Precision | Single GPU | 2 GPUs |
+|-----------|-----------|--------|
+| BF16 | 16GB | 8GB each |
+| Int8 | 11GB | 6GB each |
+| Int4 | 8GB | 4GB each |
+
+### Qwen-14B
+
+| Precision | Single GPU | 2 GPUs |
+|-----------|-----------|--------|
+| BF16 | 30GB | 15GB each |
+| Int8 | 19GB | 10GB each |
+| Int4 | 13GB | 7GB each |
+
+### Qwen-72B
+
+| Precision | GPUs Required | Memory per GPU |
+|-----------|---------------|----------------|
+| BF16 | 2x A100 80GB | ~72GB each |
+| Int8 | 2x A100 80GB | ~41GB each |
+| Int4 | 1x A100 80GB | ~49GB |
+| BF16 (vLLM) | 2x A100 80GB | Optimized |
+
+## Performance Comparison
+
+Benchmark results for Qwen-72B (generating 2048 tokens):
+
+| Method | GPUs | Speed (tokens/s) | Memory |
+|--------|------|------------------|--------|
+| Transformers | 2x A100 | 8.48 | 145GB total |
+| Transformers Int8 | 2x A100 | 9.05 | 81GB total |
+| Transformers Int4 | 1x A100 | 11.32 | 49GB |
+| vLLM | 2x A100 | 17.60 | Optimized |
+
+<Note>
+  vLLM provides ~2x speedup compared to native Transformers for multi-GPU inference.
+</Note>
+
+## Pipeline Parallelism
+
+For very large models, combine with pipeline parallelism:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+# Enable pipeline parallelism
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-72B-Chat", 
+    trust_remote_code=True
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    load_in_8bit=False,
+    torch_dtype=torch.bfloat16,
+    max_memory={0: "40GB", 1: "40GB"}  # Limit per GPU
+).eval()
+
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+## Monitoring GPU Usage
+
+Monitor GPU utilization during inference:
+
+```python
+import torch
+import time
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def print_gpu_memory():
+    """Print current GPU memory usage."""
+    for i in range(torch.cuda.device_count()):
+        allocated = torch.cuda.memory_allocated(i) / 1e9
+        reserved = torch.cuda.memory_reserved(i) / 1e9
+        print(f"GPU {i}: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-14B-Chat", 
+    trust_remote_code=True
+)
+
+print("Loading model...")
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-14B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+print("\nMemory after loading:")
+print_gpu_memory()
+
+print("\nRunning inference...")
+response, history = model.chat(tokenizer, "Tell me a story", history=None)
+
+print("\nMemory after inference:")
+print_gpu_memory()
+
+print(f"\nResponse: {response}")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose the Right Strategy">
+    - **Small models (1.8B-7B)**: Single GPU is usually sufficient
+    - **Medium models (14B)**: Single GPU or 2 GPUs with quantization
+    - **Large models (72B)**: Multi-GPU required, consider vLLM
+  </Accordion>
+  
+  <Accordion title="Memory Management">
+    ```python
+    # Clear cache between runs
+    import torch
+    import gc
+    
+    torch.cuda.empty_cache()
+    gc.collect()
+    
+    # Monitor memory
+    print(f"Memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f}GB")
+    ```
+  </Accordion>
+  
+  <Accordion title="Optimize for Throughput">
+    For production:
+    - Use vLLM with tensor parallelism
+    - Enable continuous batching
+    - Consider quantization (Int8/Int4)
+    - Use BF16 precision when possible
+  </Accordion>
+  
+  <Accordion title="Balance Load">
+    Ensure even distribution:
+    ```python
+    # Check layer distribution
+    from collections import defaultdict
+    
+    device_layers = defaultdict(int)
+    for name, param in model.named_parameters():
+        if param.device.type == 'cuda':
+            device_layers[param.device.index] += 1
+    
+    print("Layers per GPU:", dict(device_layers))
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Out of Memory on One GPU">
+    Redistribute layers more evenly:
+    ```python
+    # Use max_memory to balance
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-14B-Chat",
+        device_map="auto",
+        max_memory={0: "20GB", 1: "20GB"},
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Accordion>
+  
+  <Accordion title="Slow Cross-GPU Communication">
+    Use NVLink if available, or reduce communication:
+    ```python
+    # Check NVLink
+    import torch
+    print("NVLink available:", torch.cuda.get_device_capability()[0] >= 7)
+    
+    # If no NVLink, try different distribution
+    # or use tensor parallelism (vLLM)
+    ```
+  </Accordion>
+  
+  <Accordion title="Uneven GPU Utilization">
+    Profile and rebalance:
+    ```python
+    import torch.profiler as profiler
+    
+    with profiler.profile(
+        activities=[profiler.ProfilerActivity.CUDA],
+        record_shapes=True
+    ) as prof:
+        response, _ = model.chat(tokenizer, "Test", history=None)
+    
+    print(prof.key_averages().table(sort_by="cuda_time_total"))
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="vLLM Deployment" icon="rocket" href="/deployment/vllm">
+    Production-grade multi-GPU serving
+  </Card>
+  <Card title="Quantization" icon="compress" href="/optimization/quantization">
+    Reduce memory requirements
+  </Card>
+  <Card title="Batch Inference" icon="layer-group" href="/inference/batch-inference">
+    Increase throughput with batching
+  </Card>
+  <Card title="API Server" icon="server" href="/deployment/api">
+    Deploy as an API service
+  </Card>
+</CardGroup>

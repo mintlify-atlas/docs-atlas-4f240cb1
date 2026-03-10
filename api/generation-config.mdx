@@ -1,0 +1,294 @@
+---
+title: GenerationConfig
+description: Configure text generation parameters for Qwen models
+---
+
+## Overview
+
+GenerationConfig controls how the model generates text, including sampling strategies, length constraints, and decoding methods. These parameters can be set globally on the model or passed per generation request.
+
+## Loading Configuration
+
+```python
+from transformers.generation import GenerationConfig
+
+# Load from checkpoint
+config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True
+)
+
+# Assign to model
+model.generation_config = config
+```
+
+## Core Parameters
+
+### Temperature
+
+<ParamField path="temperature" type="float" default="1.0">
+  Controls randomness in generation:
+  - `0.0 - 0.01`: Nearly deterministic (use `top_k=1` instead)
+  - `0.7 - 0.9`: Balanced creativity and coherence
+  - `1.0+`: More random and creative
+  
+  **Note:** Qwen recommends tuning `top_p` instead of temperature.
+</ParamField>
+
+```python
+# More creative responses
+response, _ = model.chat(
+    tokenizer,
+    "Write a story",
+    temperature=0.9
+)
+```
+
+### Top-p (Nucleus Sampling)
+
+<ParamField path="top_p" type="float" default="0.95">
+  Nucleus sampling probability threshold. Model considers only tokens whose cumulative probability exceeds top_p.
+  - `0.1`: Very conservative, deterministic
+  - `0.7 - 0.9`: Balanced (recommended)
+  - `0.95 - 1.0`: More diverse outputs
+</ParamField>
+
+```python
+response, _ = model.chat(
+    tokenizer,
+    "Explain quantum physics",
+    top_p=0.85
+)
+```
+
+### Top-k Sampling
+
+<ParamField path="top_k" type="int" default="None">
+  Limits sampling to the k most likely tokens:
+  - `1`: Greedy decoding (deterministic)
+  - `10-50`: Conservative sampling
+  - `50-100`: More diverse sampling
+  
+  Setting `top_k=1` is equivalent to greedy decoding.
+</ParamField>
+
+```python
+# Greedy decoding for factual responses
+response, _ = model.chat(
+    tokenizer,
+    "What is 2+2?",
+    top_k=1
+)
+```
+
+## Length Control
+
+### Max Length
+
+<ParamField path="max_length" type="int" default="8192">
+  Maximum total sequence length (input + output tokens). Generation stops when this limit is reached.
+</ParamField>
+
+### Max New Tokens
+
+<ParamField path="max_new_tokens" type="int" default="None">
+  Maximum number of tokens to generate (excluding input). Takes precedence over `max_length`.
+</ParamField>
+
+```python
+# Limit response to 100 tokens
+response, _ = model.chat(
+    tokenizer,
+    "Summarize quantum mechanics",
+    max_new_tokens=100
+)
+```
+
+### Min Length
+
+<ParamField path="min_length" type="int" default="0">
+  Minimum total sequence length. Model will not generate EOS token before reaching this length.
+</ParamField>
+
+### Min New Tokens
+
+<ParamField path="min_new_tokens" type="int" default="None">
+  Minimum number of new tokens to generate
+</ParamField>
+
+## Stopping Criteria
+
+### Stop Strings
+
+Stop generation when specific sequences are encountered:
+
+```python
+stop_words = ["Observation:", "Final Answer:"]
+stop_words_ids = [tokenizer.encode(s) for s in stop_words]
+
+response, _ = model.chat(
+    tokenizer,
+    query="Solve this problem",
+    stop_words_ids=stop_words_ids
+)
+```
+
+### EOS Token
+
+<ParamField path="eos_token_id" type="int | list[int]" default="None">
+  Token ID(s) that trigger end of generation. For Qwen:
+  - `151643`: Default EOS token ID
+  - `<|im_end|>`: ChatML format end token
+</ParamField>
+
+### Pad Token
+
+<ParamField path="pad_token_id" type="int" default="None">
+  Token ID used for padding sequences in batched generation. For Qwen, typically set to `tokenizer.eod_id`.
+</ParamField>
+
+## Repetition Control
+
+### Repetition Penalty
+
+<ParamField path="repetition_penalty" type="float" default="1.0">
+  Penalty for repeating tokens:
+  - `1.0`: No penalty
+  - `1.1 - 1.3`: Mild discouragement of repetition
+  - `> 1.5`: Strong penalty (may harm coherence)
+</ParamField>
+
+```python
+response, _ = model.chat(
+    tokenizer,
+    "List items",
+    repetition_penalty=1.2
+)
+```
+
+### No Repeat N-gram Size
+
+<ParamField path="no_repeat_ngram_size" type="int" default="0">
+  Prevent repeating n-grams of this size. Set to `0` to disable.
+</ParamField>
+
+## Beam Search
+
+### Num Beams
+
+<ParamField path="num_beams" type="int" default="1">
+  Number of beams for beam search:
+  - `1`: No beam search (faster)
+  - `4-10`: Beam search (slower but potentially higher quality)
+</ParamField>
+
+```python
+response, _ = model.chat(
+    tokenizer,
+    "Translate to French: Hello world",
+    num_beams=5
+)
+```
+
+## Advanced Parameters
+
+### Do Sample
+
+<ParamField path="do_sample" type="bool" default="True">
+  Whether to use sampling (True) or greedy/beam search (False)
+</ParamField>
+
+### Early Stopping
+
+<ParamField path="early_stopping" type="bool" default="False">
+  Stop beam search when all beams reach EOS token
+</ParamField>
+
+### Use Cache
+
+<ParamField path="use_cache" type="bool" default="True">
+  Use KV cache for faster generation. Should be `True` for inference.
+</ParamField>
+
+## Complete Configuration Example
+
+```python
+from transformers.generation import GenerationConfig
+
+config = GenerationConfig(
+    # Sampling
+    do_sample=True,
+    temperature=0.8,
+    top_p=0.9,
+    top_k=50,
+    
+    # Length
+    max_new_tokens=512,
+    min_new_tokens=10,
+    
+    # Repetition
+    repetition_penalty=1.1,
+    no_repeat_ngram_size=3,
+    
+    # Special tokens
+    eos_token_id=151643,
+    pad_token_id=151643,
+    
+    # Performance
+    use_cache=True
+)
+
+model.generation_config = config
+```
+
+## Modifying at Runtime
+
+```python
+# View current config
+print(model.generation_config)
+
+# Modify specific parameters
+model.generation_config.temperature = 0.7
+model.generation_config.max_new_tokens = 256
+
+# Or pass directly to chat()
+response, _ = model.chat(
+    tokenizer,
+    "Your query",
+    temperature=0.7,
+    max_new_tokens=256
+)
+```
+
+## Recommended Presets
+
+### Factual/Deterministic
+
+```python
+config = GenerationConfig(
+    top_k=1,  # Greedy decoding
+    max_new_tokens=256
+)
+```
+
+### Balanced
+
+```python
+config = GenerationConfig(
+    temperature=0.7,
+    top_p=0.9,
+    max_new_tokens=512,
+    repetition_penalty=1.1
+)
+```
+
+### Creative
+
+```python
+config = GenerationConfig(
+    temperature=0.9,
+    top_p=0.95,
+    max_new_tokens=1024,
+    repetition_penalty=1.05
+)
+```

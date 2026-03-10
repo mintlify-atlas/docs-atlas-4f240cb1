@@ -1,0 +1,412 @@
+---
+title: Tokenization
+description: Detailed guide to Qwen's tokenization system and vocabulary
+---
+
+Qwen uses BPE (Byte Pair Encoding) tokenization on UTF-8 bytes using the `tiktoken` package. The tokenizer includes both regular BPE tokens and special control tokens.
+
+## Quick Start
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained('Qwen/Qwen-7B', trust_remote_code=True)
+```
+
+## Vocabulary Overview
+
+Qwen's tokenizer contains **151,851 tokens** total:
+
+- **151,643 regular tokens** - BPE tokens learned from UTF-8 byte sequences
+- **208 special tokens** - Control tokens for specific model functions
+
+### Design Philosophy
+
+The tokenizer is optimized for:
+
+1. **Efficient Chinese, English, and code encoding**
+2. **Multilingual support** without vocabulary expansion
+3. **Number segmentation** by single digits
+4. **No unknown tokens** - falls back to single bytes if needed
+
+## Regular Tokens
+
+Regular tokens are BPE tokens learned from byte sequences encoded using UTF-8.
+
+### UTF-8 Byte Encoding
+
+Unlike tokenizers that operate on Unicode codepoints, Qwen operates directly on UTF-8 bytes:
+
+```python
+>>> tokenizer.decode([51461])
+' �'
+
+>>> tokenizer.convert_ids_to_tokens([51461])
+[b' \xe6\xa0']
+
+>>> b' \xe6\xa0'.decode("utf-8", errors='replace')
+' �'
+```
+
+This may produce replacement characters (�) in incomplete generation. The tokens complete when more bytes arrive:
+
+```python
+>>> tokenizer.decode([51461, 117])
+' 根'
+
+>>> tokenizer.convert_ids_to_tokens([51461, 117])
+[b' \xe6\xa0', b'\xb9']
+
+>>> b' \xe6\xa0\xb9'.decode("utf-8", errors='replace')
+' 根'
+```
+
+### Handling Decoding Errors
+
+You can control UTF-8 decoding error handling:
+
+```python
+# Change for a single decode call
+tokenizer.decode([51461], errors="ignore")
+
+# Change permanently
+tokenizer = AutoTokenizer.from_pretrained(
+    'Qwen/Qwen-7B',
+    trust_remote_code=True,
+    errors="ignore"
+)
+```
+
+For more error handling options, see the [Python documentation](https://docs.python.org/3/library/stdtypes.html#bytes.decode).
+
+### Retrieving Vocabulary
+
+Access the complete regular token vocabulary:
+
+```python
+vocab = tokenizer.get_vocab()
+```
+
+<Warning>
+We do not support or recommend adding regular tokens to the vocabulary directly. See [Vocabulary Expansion](#vocabulary-expansion) for the correct approach.
+</Warning>
+
+## Special Tokens
+
+Special tokens signify specific functions to the model and don't typically appear in input text.
+
+### Used Special Tokens
+
+**Qwen-7B (Base Model):**
+- `<|endoftext|>` - End of document marker
+
+**Qwen-7B-Chat:**
+- `<|endoftext|>` - End of document marker
+- `<|im_start|>` - Start of ChatML turn
+- `<|im_end|>` - End of ChatML turn
+
+<Note>
+These tokens have determined meanings and should not be used for other purposes.
+</Note>
+
+### Extra Special Tokens
+
+Qwen reserves extra special tokens for custom use:
+
+- `<|extra_0|>` through `<|extra_204|>` (205 tokens)
+- Available for fine-tuning and custom applications
+
+### Retrieving Special Tokens
+
+```python
+special_tokens = tokenizer.special_tokens
+```
+
+### BOS, EOS, PAD, UNK Tokens
+
+<Warning>
+The concepts of `bos`, `eos`, `unk`, `pad`, `mask`, `sep` are **not applicable** to Qwen pretrained models.
+</Warning>
+
+For frameworks that require these tokens (e.g., during fine-tuning):
+
+```python
+tokenizer = AutoTokenizer.from_pretrained(
+    'Qwen/Qwen-7B',
+    trust_remote_code=True,
+    pad_token='<|endoftext|>'
+)
+```
+
+<Warning>
+Setting `bos`, `eos`, or `unk` without fine-tuning may introduce unknown behavior. Do not use `<|endoftext|>` as `eos` unless you understand the implications.
+</Warning>
+
+## Injection Attack Prevention
+
+### The Problem
+
+What happens when special token surface forms appear in text?
+
+```python
+text = 'print("<|endoftext|>")'
+```
+
+Should this be tokenized as:
+
+**Correct (safe):**
+```python
+ids: [1350, 9639, 91, 8691, 723, 427, 91, 82598]
+tokens: [b'print', b'("<', b'|', b'endo', b'ft', b'ext', b'|', b'>")']  
+```
+
+**Incorrect (injection vulnerability):**
+```python
+ids: [1350, 445, 151643, 899]
+tokens: [b'print', b'("', '<|endoftext|>', b'")']  
+```
+
+### Default Behavior
+
+<Note>
+By default, Qwen now parses surface forms as special tokens (the second behavior above).
+</Note>
+
+This matches community practice but is potentially unsafe.
+
+### Safe Tokenization
+
+To prevent injection attacks, use `allowed_special=set()`:
+
+```python
+>>> tokenizer('print("<|endoftext|>")', allowed_special=set())
+{'input_ids': [1350, 9639, 91, 8691, 723, 427, 91, 82598], ...}
+```
+
+### Fine-Grained Control
+
+Allow specific special tokens:
+
+```python
+>>> tokenizer(
+...     'print("<|extra_0|>")<|endoftext|>',
+...     allowed_special={'<|endoftext|>'}
+... )
+{'input_ids': [1350, 9639, 91, 15460, 62, 15, 91, 82598, 151643], ...}
+```
+
+Raise errors on specific tokens:
+
+```python
+>>> tokenizer(
+...     'print("<|extra_0|>")<|endoftext|>',
+...     allowed_special={'<|endoftext|>'},
+...     disallowed_special=('<|extra_0|>',)
+... )
+ValueError: Encountered text corresponding to disallowed special token '<|extra_0|>'.
+```
+
+For more information, see the [tiktoken documentation](https://github.com/openai/tiktoken).
+
+### Backward Compatibility
+
+The unsafe default is equivalent to:
+
+```python
+tokenizer('print("<|endoftext|>")', allowed_special="all", disallowed_special=())
+```
+
+## Vocabulary Expansion
+
+<Warning>
+Read carefully and understand the caveats before expanding vocabulary. Use at your own risk.
+</Warning>
+
+### Process
+
+You cannot directly add words to BPE vocabulary. You must learn new merges:
+
+**1. Prepare vocabulary file `qwen_extra_vocab.txt`:**
+
+```
+我是一只猫	20
+你是一只猫	10
+他是一只猫	5
+一只	200
+一只猫	100
+夸张的 比喻手法	20
+```
+
+Format: `token<TAB>frequency` (frequencies needed for BPE computation)
+
+**2. Get base vocabulary:**
+
+- Base file: `qwen.tiktoken`
+- Start index: 151,851 (default, or override inactive control tokens)
+
+**3. Learn new merges:**
+
+```bash
+python add_merges.py qwen.tiktoken qwen_extra.tiktoken qwen_extra_vocab.txt
+```
+
+The script is available [here](https://github.com/QwenLM/Qwen/blob/main/examples/add_merges.py).
+
+**Output:**
+```
+WARNING - 夸张的 比喻手法 would be pre-tokenized to ['夸张的', ' 比喻手法'], cannot add
+WARNING - word 一只 is already a token b'\xe4\xb8\x80\xe5\x8f\xaa', skipping
+INFO - number of existing merges: 151643
+INFO - number of words for expanding: 4
+DEBUG - (b'\xe4\xb8\x80\xe5\x8f\xaa', b'\xe7\x8c\xab') (一只猫) selected, freq 100
+DEBUG - (b'\xe5\x8f\xaa', b'\xe7\x8c\xab') (只猫) selected, freq 35
+DEBUG - (b'\xe6\x98\xaf\xe4\xb8\x80', b'\xe5\x8f\xaa\xe7\x8c\xab') (是一只猫) selected, freq 35
+DEBUG - (b'\xe6\x88\x91', b'\xe6\x98\xaf\xe4\xb8\x80\xe5\x8f\xaa\xe7\x8c\xab') (我是一只猫) selected, freq 20
+INFO - number of newly learned merges: 6
+```
+
+**4. Use expanded vocabulary:**
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B",
+    trust_remote_code=True,
+    extra_vocab_file="qwen_extra.tiktoken"
+)
+
+>>> len(tokenizer)
+151857
+
+>>> tokenizer("我是一只猫")
+{'input_ids': [151854], 'token_type_ids': [0], 'attention_mask': [1]}
+```
+
+<Note>
+Requires tokenizer code from after 2023-10-08. Older versions must manually append `qwen.tiktoken` with content from `qwen_extra.tiktoken`.
+</Note>
+
+**5. Fine-tune the model** to learn the new tokens.
+
+### Caveats
+
+#### Unicode Boundary Issues
+
+Because Qwen operates on UTF-8 bytes (not Unicode codepoints), limited training data may not recognize Unicode boundaries correctly.
+
+**Problem:** Invalid merges across codepoint boundaries may occur:
+
+```
+String: "一只" = b'\xe4\xb8\x80\xe5\x8f\xaa'
+一 = b'\xe4\xb8\x80'
+只 = b'\xe5\x8f\xaa'
+
+# Invalid merge could happen:
+b'\x80\xe5'  # crosses codepoint boundary!
+```
+
+**Solution:** Include all Unicode codepoints from your words with higher frequencies:
+
+```
+一	1000
+只	1000
+猫	1000
+我是一只猫	20
+你是一只猫	10
+```
+
+#### Context-Dependent Tokenization
+
+BPE is distribution-based, not semantic. Tokens may split differently in different contexts:
+
+```python
+>>> tokenizer.tokenize("Panda")
+[b'P', b'anda']
+
+>>> tokenizer.tokenize(" Panda")
+[b' Panda']
+
+>>> tokenizer.tokenize("Pandas")
+[b'P', b'andas']
+
+>>> tokenizer.tokenize(" Pandas")
+[b' Pand', b'as']
+```
+
+This reflects frequency in training data and is normal behavior.
+
+#### Existing Token Example
+
+```python
+# "一只" is already a token
+# "只猫" is learned as new token
+# Because "是一" also exists and has higher priority:
+
+是|一|只|猫 → 是一|只|猫 → 是一|只猫 → 是一只猫
+```
+
+This is expected BPE behavior based on frequency distribution.
+
+## Multilingual Efficiency
+
+While optimized for Chinese, English, and code, Qwen achieves high compression rates for:
+
+- Thai (th)
+- Hebrew (he) 
+- Arabic (ar)
+- Korean (ko)
+- Vietnamese (vi)
+- Japanese (ja)
+- Turkish (tr)
+- Indonesian (id)
+- Polish (pl)
+- Russian (ru)
+- Dutch (nl)
+- Portuguese (pt)
+- Italian (it)
+- German (de)
+- Spanish (es)
+- French (fr)
+
+This provides strong scalability and efficiency for multilingual applications without vocabulary expansion.
+
+## Best Practices
+
+<Accordion title="When to use allowed_special=set()">
+Use injection prevention when:
+- Processing untrusted user input
+- Building chatbots or interactive systems
+- Handling code or structured text that might contain special token patterns
+</Accordion>
+
+<Accordion title="When to expand vocabulary">
+Consider vocabulary expansion when:
+- Fine-tuning on domain-specific text with unique terminology
+- Working with languages that would benefit from better tokenization
+- You have sufficient training data for the new tokens (1000+ examples)
+
+Do NOT expand vocabulary if:
+- You're only doing inference
+- You have limited training data
+- Your use case works well with existing tokenization
+</Accordion>
+
+<Accordion title="Handling incomplete UTF-8 sequences">
+During generation, incomplete UTF-8 sequences may appear:
+
+```python
+# Set error handling for cleaner output
+tokenizer = AutoTokenizer.from_pretrained(
+    'Qwen/Qwen-7B',
+    trust_remote_code=True,
+    errors="ignore"  # or "replace" (default)
+)
+```
+</Accordion>
+
+## Additional Resources
+
+- [tiktoken documentation](https://github.com/openai/tiktoken)
+- [Vocabulary expansion script](https://github.com/QwenLM/Qwen/blob/main/examples/add_merges.py)
+- [Python bytes.decode documentation](https://docs.python.org/3/library/stdtypes.html#bytes.decode)

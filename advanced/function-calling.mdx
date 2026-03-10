@@ -1,0 +1,277 @@
+---
+title: 'Function Calling'
+description: 'Learn how to use Qwen models to call functions and interact with external tools'
+---
+
+## Overview
+
+Qwen models support function calling capabilities, allowing the model to intelligently decide when to call external functions and generate appropriate parameters. This enables integration with APIs, databases, and other external services.
+
+Qwen supports both **Qwen-style** and **GPT-style** function calling formats, providing flexibility for different use cases.
+
+## Function Calling Formats
+
+### Qwen-Style Functions
+
+Qwen uses a custom function definition format that includes both human-readable and model-readable descriptions:
+
+```python
+functions = [
+    {
+        'name_for_human': '谷歌搜索',
+        'name_for_model': 'google_search',
+        'description_for_model': '谷歌搜索是一个通用搜索引擎，可用于访问互联网、查询百科知识、了解时事新闻等。 Format the arguments as a JSON object.',
+        'parameters': [
+            {
+                'name': 'search_query',
+                'description': '搜索关键词或短语',
+                'required': True,
+                'schema': {'type': 'string'},
+            }
+        ],
+    },
+    {
+        'name_for_human': '文生图',
+        'name_for_model': 'image_gen',
+        'description_for_model': '文生图是一个AI绘画（图像生成）服务，输入文本描述，返回根据文本作画得到的图片的URL。 Format the arguments as a JSON object.',
+        'parameters': [
+            {
+                'name': 'prompt',
+                'description': '英文关键词，描述了希望图像具有什么内容',
+                'required': True,
+                'schema': {'type': 'string'},
+            }
+        ],
+    },
+]
+```
+
+### GPT-Style Functions
+
+Qwen also supports OpenAI-compatible function definitions:
+
+```python
+functions = [
+    {
+        'name': 'get_current_weather',
+        'description': 'Get the current weather in a given location.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'location': {
+                    'type': 'string',
+                    'description': 'The city and state, e.g. San Francisco, CA',
+                },
+                'unit': {
+                    'type': 'string',
+                    'enum': ['celsius', 'fahrenheit']
+                },
+            },
+            'required': ['location'],
+        },
+    }
+]
+```
+
+## Using Function Calling with OpenAI API
+
+Qwen provides an OpenAI-compatible API server for function calling:
+
+<CodeGroup>
+```python Basic Function Call
+import json
+import openai
+
+# Configure API endpoint
+openai.api_base = 'http://localhost:8000/v1'
+openai.api_key = 'none'
+
+def call_qwen(messages, functions=None):
+    if functions:
+        response = openai.ChatCompletion.create(
+            model='Qwen',
+            messages=messages,
+            functions=functions
+        )
+    else:
+        response = openai.ChatCompletion.create(
+            model='Qwen',
+            messages=messages
+        )
+    return response.choices[0]['message']
+
+# Example: Weather query
+messages = [
+    {'role': 'user', 'content': '波士顿天气如何？'}
+]
+
+functions = [
+    {
+        'name': 'get_current_weather',
+        'description': 'Get the current weather in a given location.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'location': {
+                    'type': 'string',
+                    'description': 'The city and state, e.g. San Francisco, CA',
+                },
+                'unit': {'type': 'string', 'enum': ['celsius', 'fahrenheit']},
+            },
+            'required': ['location'],
+        },
+    }
+]
+
+response = call_qwen(messages, functions)
+print(response)
+# Output includes function_call with arguments: {"location": "Boston, MA"}
+```
+
+```python Multi-Turn Conversation
+import openai
+
+openai.api_base = 'http://localhost:8000/v1'
+openai.api_key = 'none'
+
+messages = [
+    {'role': 'user', 'content': '搜索一下谁是周杰伦'}
+]
+
+response = call_qwen(messages, functions)
+messages.append({
+    'role': 'assistant',
+    'content': '我应该使用Google搜索查找相关信息。',
+    'function_call': {
+        'name': 'google_search',
+        'arguments': '{"search_query": "周杰伦"}',
+    },
+})
+
+# Add function result
+messages.append({
+    'role': 'function',
+    'name': 'google_search',
+    'content': 'Jay Chou is a Taiwanese singer.',
+})
+
+# Continue conversation
+response = call_qwen(messages, functions)
+```
+</CodeGroup>
+
+## Setting Up the OpenAI API Server
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install fastapi uvicorn openai pydantic sse_starlette
+    ```
+  </Step>
+  
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/QwenLM/Qwen-7B
+    cd Qwen-7B
+    ```
+  </Step>
+  
+  <Step title="Start API Server">
+    ```bash
+    python openai_api.py
+    ```
+    
+    The server will start on `http://localhost:8000/v1`
+  </Step>
+</Steps>
+
+## Function Calling Workflow
+
+<Steps>
+  <Step title="Define Functions">
+    Create function definitions with clear descriptions and parameter schemas.
+  </Step>
+  
+  <Step title="Send User Query">
+    Send the user's message along with available functions to the model.
+  </Step>
+  
+  <Step title="Model Decides">
+    The model decides whether to call a function and generates appropriate arguments.
+  </Step>
+  
+  <Step title="Execute Function">
+    Your application executes the function with the provided arguments.
+  </Step>
+  
+  <Step title="Return Results">
+    Send the function results back to the model for final response generation.
+  </Step>
+</Steps>
+
+## Integration with LangChain
+
+Qwen works seamlessly with LangChain for agent-based function calling:
+
+```python
+from langchain.agents import AgentType, initialize_agent, load_tools
+from langchain.chat_models import ChatOpenAI
+
+llm = ChatOpenAI(
+    model_name='Qwen',
+    openai_api_base='http://localhost:8000/v1',
+    openai_api_key='EMPTY',
+    streaming=False,
+)
+
+tools = load_tools(['arxiv'])
+agent_chain = initialize_agent(
+    tools,
+    llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=True,
+)
+
+agent_chain.run('查一下论文 1605.08386 的信息')
+```
+
+## Best Practices
+
+<Note>
+**Important Considerations:**
+
+- **Clear Descriptions**: Provide detailed function descriptions to help the model understand when to use each function
+- **Parameter Validation**: Always validate function arguments before execution
+- **Error Handling**: Implement proper error handling for function calls
+- **Chinese vs English**: The current version (as of 2023.08) of Qwen-7B-Chat performs better with Chinese tool-use prompts than English ones
+</Note>
+
+## Supported Models
+
+Function calling is supported on:
+- **Qwen-7B-Chat**
+- **Qwen-14B-Chat**
+- **Qwen-72B-Chat**
+- **Qwen-1.8B-Chat**
+
+All models support both Qwen-style and GPT-style function definitions.
+
+## Example Use Cases
+
+- **Web Search**: Integrate search engines to answer factual questions
+- **Image Generation**: Create images based on text descriptions
+- **Weather APIs**: Get real-time weather information
+- **Database Queries**: Retrieve information from databases
+- **Calculator**: Perform mathematical calculations
+- **Code Execution**: Execute code and return results
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tool Use" icon="wrench" href="/advanced/tool-use">
+    Learn about ReAct prompting and tool integration
+  </Card>
+  <Card title="Agent Building" icon="robot" href="/advanced/agent">
+    Build intelligent agents with Qwen
+  </Card>
+</CardGroup>

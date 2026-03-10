@@ -1,0 +1,151 @@
+---
+title: Models Endpoint
+description: List available models in OpenAI-compatible API
+---
+
+## Overview
+
+The Models endpoint provides information about available models on the server. It follows the OpenAI API specification.
+
+## Endpoint
+
+```
+GET http://localhost:8000/v1/models
+```
+
+## Request
+
+No parameters required.
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+## Response
+
+### Response Body
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-3.5-turbo",
+      "object": "model",
+      "created": 1677610602,
+      "owned_by": "owner",
+      "root": null,
+      "parent": null,
+      "permission": null
+    }
+  ]
+}
+```
+
+### Response Fields
+
+<ResponseField name="object" type="string">
+  Always `"list"` for this endpoint
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of model objects
+</ResponseField>
+
+<ResponseField name="data[].id" type="string">
+  Model identifier (currently always `"gpt-3.5-turbo"`)
+</ResponseField>
+
+<ResponseField name="data[].object" type="string">
+  Object type: `"model"`
+</ResponseField>
+
+<ResponseField name="data[].created" type="integer">
+  Unix timestamp of when the model information was created
+</ResponseField>
+
+<ResponseField name="data[].owned_by" type="string">
+  Entity that owns the model (default: `"owner"`)
+</ResponseField>
+
+<ResponseField name="data[].root" type="string | null">
+  Root model identifier (currently `null`)
+</ResponseField>
+
+<ResponseField name="data[].parent" type="string | null">
+  Parent model identifier (currently `null`)
+</ResponseField>
+
+<ResponseField name="data[].permission" type="array | null">
+  Model permissions (currently `null`)
+</ResponseField>
+
+## Python Example
+
+### Using requests
+
+```python
+import requests
+
+response = requests.get("http://localhost:8000/v1/models")
+models = response.json()
+
+print(f"Available models: {len(models['data'])}")
+for model in models['data']:
+    print(f"- {model['id']}")
+```
+
+### Using OpenAI SDK
+
+```python
+import openai
+
+# Configure client
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+# List models
+models = openai.Model.list()
+
+for model in models.data:
+    print(f"Model ID: {model.id}")
+    print(f"Created: {model.created}")
+    print(f"Owned by: {model.owned_by}")
+```
+
+## JavaScript Example
+
+```javascript
+fetch('http://localhost:8000/v1/models')
+  .then(response => response.json())
+  .then(data => {
+    console.log('Available models:');
+    data.data.forEach(model => {
+      console.log(`- ${model.id}`);
+    });
+  });
+```
+
+## cURL Example
+
+```bash
+curl http://localhost:8000/v1/models \
+  -H "Content-Type: application/json"
+```
+
+## Notes
+
+- The endpoint currently returns a single model entry with ID `"gpt-3.5-turbo"` regardless of which Qwen model is loaded
+- This is for OpenAI API compatibility - the actual model serving requests is the Qwen model specified when starting the server
+- The `created` timestamp is generated at request time
+- The model list does not reflect the actual checkpoint path used to start the server
+
+## Model Information
+
+To determine which Qwen model is actually running, check the server startup logs:
+
+```bash
+python openai_api.py --checkpoint-path Qwen/Qwen-7B-Chat
+```
+
+The server will load the model specified in `--checkpoint-path`, but the API will report it as `"gpt-3.5-turbo"` for compatibility.

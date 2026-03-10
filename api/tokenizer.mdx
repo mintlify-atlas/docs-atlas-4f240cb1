@@ -1,0 +1,321 @@
+---
+title: Tokenizer API
+description: Encode and decode text for Qwen models
+---
+
+## Overview
+
+The Qwen tokenizer converts text to token IDs for model input and decodes token IDs back to text. It includes special tokens for the ChatML format and provides various encoding/decoding options.
+
+## Loading Tokenizer
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    resume_download=True
+)
+```
+
+## Encoding Text
+
+### encode() Method
+
+Convert text to token IDs:
+
+```python
+text = "Hello, world!"
+token_ids = tokenizer.encode(text)
+print(token_ids)  # [151644, 13225, 11, 1879, 0, 151645]
+```
+
+### Parameters
+
+<ParamField path="text" type="str" required>
+  Input text to encode
+</ParamField>
+
+<ParamField path="add_special_tokens" type="bool" default="True">
+  Whether to add special tokens (BOS/EOS)
+</ParamField>
+
+<ParamField path="max_length" type="int" default="None">
+  Maximum sequence length (truncate if exceeded)
+</ParamField>
+
+<ParamField path="truncation" type="bool" default="False">
+  Whether to truncate sequences exceeding max_length
+</ParamField>
+
+<ParamField path="padding" type="str | bool" default="False">
+  Padding strategy: `"max_length"`, `"longest"`, or `False`
+</ParamField>
+
+### Returns
+
+<ResponseField name="token_ids" type="list[int]">
+  List of token IDs
+</ResponseField>
+
+## Decoding Token IDs
+
+### decode() Method
+
+Convert token IDs back to text:
+
+```python
+token_ids = [151644, 13225, 11, 1879, 0, 151645]
+text = tokenizer.decode(token_ids)
+print(text)  # "Hello, world!"
+```
+
+### Parameters
+
+<ParamField path="token_ids" type="list[int]" required>
+  List of token IDs to decode
+</ParamField>
+
+<ParamField path="skip_special_tokens" type="bool" default="False">
+  Whether to remove special tokens from output
+</ParamField>
+
+<ParamField path="clean_up_tokenization_spaces" type="bool" default="True">
+  Whether to clean up extra spaces
+</ParamField>
+
+<ParamField path="errors" type="str" default="replace">
+  How to handle decoding errors: `"ignore"`, `"replace"`, or `"strict"`
+</ParamField>
+
+### Returns
+
+<ResponseField name="text" type="str">
+  Decoded text string
+</ResponseField>
+
+## Batch Encoding
+
+Encode multiple texts at once:
+
+```python
+texts = [
+    "First example",
+    "Second example",
+    "Third example"
+]
+
+encoded = tokenizer(
+    texts,
+    padding=True,
+    truncation=True,
+    max_length=512,
+    return_tensors="pt"
+)
+
+print(encoded.input_ids.shape)  # torch.Size([3, max_seq_len])
+print(encoded.attention_mask.shape)  # torch.Size([3, max_seq_len])
+```
+
+### Parameters
+
+<ParamField path="text" type="str | list[str]" required>
+  Single text or list of texts to encode
+</ParamField>
+
+<ParamField path="padding" type="bool | str" default="False">
+  Padding strategy:
+  - `True` or `"longest"`: Pad to longest sequence in batch
+  - `"max_length"`: Pad to max_length parameter
+  - `False`: No padding
+</ParamField>
+
+<ParamField path="truncation" type="bool" default="False">
+  Whether to truncate sequences exceeding max_length
+</ParamField>
+
+<ParamField path="max_length" type="int" default="None">
+  Maximum sequence length
+</ParamField>
+
+<ParamField path="return_tensors" type="str" default="None">
+  Return format:
+  - `"pt"`: PyTorch tensors
+  - `"tf"`: TensorFlow tensors
+  - `"np"`: NumPy arrays
+  - `None`: Python lists
+</ParamField>
+
+<ParamField path="return_attention_mask" type="bool" default="True">
+  Whether to return attention mask
+</ParamField>
+
+### Returns
+
+<ResponseField name="input_ids" type="torch.Tensor | list">
+  Encoded token IDs
+</ResponseField>
+
+<ResponseField name="attention_mask" type="torch.Tensor | list">
+  Attention mask (1 for real tokens, 0 for padding)
+</ResponseField>
+
+## Special Tokens
+
+### ChatML Format Tokens
+
+```python
+# Get special token IDs
+im_start_id = tokenizer.im_start_id  # 151644
+im_end_id = tokenizer.im_end_id      # 151645
+eod_id = tokenizer.eod_id            # End of document token
+
+# Encode special tokens
+im_start = tokenizer.encode("<|im_start|>")
+im_end = tokenizer.encode("<|im_end|>")
+```
+
+### Common Special Tokens
+
+| Token | ID | Purpose |
+|-------|-----|----------|
+| `<\|im_start\|>` | 151644 | Start of message |
+| `<\|im_end\|>` | 151645 | End of message |
+| `<\|endoftext\|>` | 151643 | End of text/document |
+
+## Token Information
+
+```python
+# Vocabulary size
+vocab_size = tokenizer.vocab_size
+print(f"Vocabulary size: {vocab_size}")  # 151936
+
+# Get token from ID
+token = tokenizer.convert_ids_to_tokens(100)
+print(token)
+
+# Get ID from token
+token_id = tokenizer.convert_tokens_to_ids("hello")
+print(token_id)
+
+# Tokenize with offset mapping
+result = tokenizer(
+    "Hello world",
+    return_offsets_mapping=True
+)
+print(result.offset_mapping)
+```
+
+## Advanced Encoding
+
+### Manual ChatML Formatting
+
+```python
+im_start = "<|im_start|>"
+im_end = "<|im_end|>"
+
+# Format conversation
+system = "You are a helpful assistant."
+user = "What is AI?"
+
+prompt = f"""{im_start}system
+{system}{im_end}
+{im_start}user
+{user}{im_end}
+{im_start}assistant
+"""
+
+input_ids = tokenizer.encode(prompt)
+```
+
+### Truncation Strategies
+
+```python
+# Truncate from right
+encoded = tokenizer(
+    long_text,
+    max_length=512,
+    truncation=True,
+    truncation_strategy="longest_first"
+)
+
+# Keep only recent tokens
+encoded = tokenizer(
+    long_text,
+    max_length=512,
+    truncation=True,
+    stride=128  # Overlapping tokens
+)
+```
+
+## Padding Configuration
+
+```python
+# Pad on right (for training)
+tokenizer.padding_side = "right"
+
+# Pad on left (for generation)
+tokenizer.padding_side = "left"
+
+# Set pad token
+tokenizer.pad_token_id = tokenizer.eod_id
+```
+
+## Complete Example
+
+```python
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True
+)
+
+# Prepare inputs
+messages = [
+    "Explain quantum computing",
+    "What is machine learning?"
+]
+
+# Batch encode
+inputs = tokenizer(
+    messages,
+    padding=True,
+    truncation=True,
+    max_length=2048,
+    return_tensors="pt"
+)
+
+print(f"Input shape: {inputs.input_ids.shape}")
+print(f"Attention mask shape: {inputs.attention_mask.shape}")
+
+# Decode single sequence
+output_ids = model.generate(inputs.input_ids[0:1])
+decoded = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+print(decoded)
+
+# Batch decode
+output_ids = model.generate(inputs.input_ids)
+decoded_batch = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+for i, text in enumerate(decoded_batch):
+    print(f"Output {i}: {text}")
+```
+
+## Error Handling
+
+```python
+# Handle invalid token IDs
+try:
+    text = tokenizer.decode([99999999], errors="strict")
+except Exception as e:
+    print(f"Error: {e}")
+
+# Ignore errors
+text = tokenizer.decode([99999999], errors="ignore")
+
+# Replace invalid characters
+text = tokenizer.decode(invalid_ids, errors="replace")
+```

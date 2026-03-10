@@ -1,0 +1,549 @@
+---
+title: 'Using System Prompts Effectively'
+description: 'Customize Qwen model behavior with system prompts for role-playing, task setting, and behavior control'
+---
+
+## Overview
+
+System prompts define the behavior mode of the AI assistant, including character settings, language styles, task modes, and specific behaviors. **Qwen-1.8B-Chat** and **Qwen-72B-Chat** have been specifically trained with enhanced system prompt capabilities.
+
+<Note>
+**Model Support:**
+
+System prompt enhancement is currently available in:
+- ✅ Qwen-72B-Chat
+- ✅ Qwen-1.8B-Chat
+
+Other models have basic system prompt support but not the enhanced training.
+</Note>
+
+## What are System Prompts?
+
+System prompts set the foundational behavior of the AI assistant:
+
+- **Character Settings**: Define who the assistant is (e.g., "You are a helpful assistant")
+- **Language Style**: Control tone, formality, and expression style
+- **Task Modes**: Specify specialized tasks (e.g., translation, summarization)
+- **Behavioral Rules**: Define specific behaviors and constraints
+
+System prompts remain stable across multiple conversation turns, allowing consistent customization of the AI assistant's behavior.
+
+## Basic Usage
+
+### Simple System Prompt
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-1_8B-Chat",
+    trust_remote_code=True
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-1_8B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Use system parameter in chat()
+response, _ = model.chat(
+    tokenizer,
+    "你好呀",
+    history=None,
+    system="请用二次元可爱语气和我说话"
+)
+
+print(response)
+# Output: 你好啊！我是一只可爱的二次元猫咪哦，不知道你有什么问题需要我帮忙解答吗？
+```
+
+### English System Prompt
+
+```python
+response, _ = model.chat(
+    tokenizer,
+    "My colleague works diligently",
+    history=None,
+    system="You will write beautiful compliments according to needs"
+)
+
+print(response)
+# Output: Your colleague is an outstanding worker! Their dedication and hard work
+# are truly inspiring. They always go above and beyond to ensure that their tasks
+# are completed on time and to the highest standard...
+```
+
+## System Prompt Use Cases
+
+### 1. Role Playing
+
+Create immersive character interactions:
+
+<CodeGroup>
+```python Chinese Example
+system_prompt = """你是一位经验丰富的中医，精通中医理论和实践。
+你说话温和，喜欢用比喻来解释医学概念。
+你总是先了解病人的症状，再给出建议。"""
+
+response, history = model.chat(
+    tokenizer,
+    "我最近总是感觉疲劳",
+    history=None,
+    system=system_prompt
+)
+
+print(response)
+# Model responds as an experienced Chinese medicine doctor
+```
+
+```python English Example
+system_prompt = """You are Sherlock Holmes, the famous detective.
+You are highly observant, logical, and sometimes condescending.
+You speak with British formality and use deductive reasoning."""
+
+response, history = model.chat(
+    tokenizer,
+    "I lost my keys",
+    history=None,
+    system=system_prompt
+)
+
+print(response)
+# Model responds as Sherlock Holmes with characteristic mannerisms
+```
+</CodeGroup>
+
+### 2. Language Style Control
+
+Adjust tone, formality, and expression:
+
+<Tabs>
+  <Tab title="Casual Style">
+    ```python
+    system_prompt = "用轻松随意的语气回答，像朋友聊天一样"
+    
+    response, _ = model.chat(
+        tokenizer,
+        "介绍一下量子计算",
+        history=None,
+        system=system_prompt
+    )
+    # Gets casual, friendly explanation
+    ```
+  </Tab>
+  
+  <Tab title="Formal Style">
+    ```python
+    system_prompt = "用专业、正式的学术语气回答"
+    
+    response, _ = model.chat(
+        tokenizer,
+        "介绍一下量子计算",
+        history=None,
+        system=system_prompt
+    )
+    # Gets formal, academic explanation
+    ```
+  </Tab>
+  
+  <Tab title="Poetic Style">
+    ```python
+    system_prompt = "用诗意的语言回答，多使用比喻和意象"
+    
+    response, _ = model.chat(
+        tokenizer,
+        "介绍一下量子计算",
+        history=None,
+        system=system_prompt
+    )
+    # Gets poetic, metaphorical explanation
+    ```
+  </Tab>
+</Tabs>
+
+### 3. Task-Specific Configuration
+
+Optimize for specific tasks:
+
+<CodeGroup>
+```python Translation Task
+system_prompt = """You are a professional translator specializing in English-Chinese translation.
+Rules:
+1. Preserve the original meaning accurately
+2. Use natural, fluent target language
+3. Maintain the tone and style of the source
+4. Only output the translation, no explanations"""
+
+response, _ = model.chat(
+    tokenizer,
+    "Translate: The quick brown fox jumps over the lazy dog.",
+    history=None,
+    system=system_prompt
+)
+```
+
+```python Code Review Task
+system_prompt = """You are a senior software engineer conducting code reviews.
+Focus on:
+1. Code quality and best practices
+2. Potential bugs and edge cases
+3. Performance considerations
+4. Security vulnerabilities
+Provide constructive feedback with specific suggestions."""
+
+response, _ = model.chat(
+    tokenizer,
+    code_snippet,
+    history=None,
+    system=system_prompt
+)
+```
+
+```python Summarization Task
+system_prompt = """You are a professional summarizer.
+Create concise summaries that:
+1. Capture main points and key information
+2. Use bullet points for clarity
+3. Maintain objectivity
+4. Are 20-30% of original length"""
+
+response, _ = model.chat(
+    tokenizer,
+    long_article,
+    history=None,
+    system=system_prompt
+)
+```
+</CodeGroup>
+
+### 4. Behavior Control
+
+Define specific behavioral rules:
+
+<Steps>
+  <Step title="Define Constraints">
+    ```python
+    system_prompt = """You are a helpful assistant with the following rules:
+    1. Never discuss or provide information about illegal activities
+    2. Decline requests for medical diagnosis (suggest consulting doctors)
+    3. Refuse to generate harmful or offensive content
+    4. Always cite sources when providing factual information
+    5. Admit when you don't know something
+    """
+    ```
+  </Step>
+  
+  <Step title="Test Boundaries">
+    ```python
+    # Test rule enforcement
+    response, _ = model.chat(
+        tokenizer,
+        "How do I hack a website?",
+        history=None,
+        system=system_prompt
+    )
+    # Should decline and explain why
+    ```
+  </Step>
+  
+  <Step title="Verify Consistency">
+    ```python
+    # Test across multiple turns
+    history = None
+    for query in test_queries:
+        response, history = model.chat(
+            tokenizer,
+            query,
+            history=history,
+            system=system_prompt
+        )
+        # Verify rules are maintained
+    ```
+  </Step>
+</Steps>
+
+## Advanced System Prompt Patterns
+
+### Multi-Aspect System Prompts
+
+Combine multiple aspects for complex behavior:
+
+```python
+system_prompt = """# Role
+You are an AI tutor specializing in mathematics education.
+
+# Personality
+- Patient and encouraging
+- Enthusiastic about teaching
+- Uses analogies and real-world examples
+
+# Teaching Approach
+1. Assess student's understanding first
+2. Break complex problems into steps
+3. Ask guiding questions instead of giving direct answers
+4. Provide positive reinforcement
+
+# Constraints
+- Don't solve homework directly
+- Focus on teaching concepts, not just answers
+- Use age-appropriate language
+- Encourage practice and exploration
+"""
+
+response, history = model.chat(
+    tokenizer,
+    "I don't understand quadratic equations",
+    history=None,
+    system=system_prompt
+)
+```
+
+### Dynamic System Prompts
+
+Adjust system prompts based on context:
+
+```python
+def get_system_prompt(task_type, user_preferences):
+    """Generate dynamic system prompt."""
+    base = "You are a helpful assistant."
+    
+    if task_type == "creative":
+        base += " You are creative and think outside the box."
+    elif task_type == "analytical":
+        base += " You are logical and detail-oriented."
+    
+    if user_preferences.get("concise"):
+        base += " Keep responses concise and to the point."
+    
+    if user_preferences.get("language") == "zh":
+        base += " 用中文回答。"
+    
+    return base
+
+# Usage
+system = get_system_prompt(
+    task_type="creative",
+    user_preferences={"concise": True, "language": "zh"}
+)
+
+response, _ = model.chat(tokenizer, query, history=None, system=system)
+```
+
+### Context-Aware System Prompts
+
+```python
+class ContextualSystemPrompt:
+    """Manage system prompts with context."""
+    
+    def __init__(self, base_prompt: str):
+        self.base = base_prompt
+        self.context = {}
+    
+    def add_context(self, key: str, value: str):
+        """Add contextual information."""
+        self.context[key] = value
+    
+    def build(self) -> str:
+        """Build complete system prompt."""
+        prompt = self.base
+        
+        if self.context:
+            prompt += "\n\nContext:\n"
+            for key, value in self.context.items():
+                prompt += f"- {key}: {value}\n"
+        
+        return prompt
+
+# Usage
+system_builder = ContextualSystemPrompt(
+    "You are a customer service representative."
+)
+system_builder.add_context("company", "TechCorp Inc.")
+system_builder.add_context("product", "Smart Home Hub")
+system_builder.add_context("user_tier", "Premium")
+
+response, _ = model.chat(
+    tokenizer,
+    "I need help with my device",
+    history=None,
+    system=system_builder.build()
+)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Be Specific" icon="bullseye">
+    Provide clear, detailed instructions rather than vague directives
+  </Card>
+  <Card title="Test Stability" icon="flask">
+    Verify the system prompt maintains effect across multiple turns
+  </Card>
+  <Card title="Use Examples" icon="list-check">
+    Include examples in system prompts to demonstrate desired behavior
+  </Card>
+  <Card title="Keep Reasonable Length" icon="ruler">
+    Balance detail with token efficiency; very long system prompts may impact performance
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Example-Based System Prompts
+
+```python
+system_prompt = """You are a helpful assistant that formats data.
+
+Example input: Name: John, Age: 30, City: NYC
+Example output:
+{
+  "name": "John",
+  "age": 30,
+  "city": "NYC"
+}
+
+Follow this format for all inputs."""
+```
+
+### Rule-Based System Prompts
+
+```python
+system_prompt = """You are a content moderator.
+
+Rules:
+1. Flag content containing profanity
+2. Flag content with personal information
+3. Flag spam or promotional content
+4. Provide reason code for each flag
+5. Use format: [STATUS: FLAGGED/APPROVED] Reason: ..."""
+```
+
+### Persona-Based System Prompts
+
+```python
+system_prompt = """You are Ada Lovelace, speaking in first person.
+
+Background:
+- Born 1815, daughter of Lord Byron
+- Mathematician and writer
+- Worked on Charles Babbage's Analytical Engine
+- Considered the first computer programmer
+
+Style:
+- Formal Victorian English
+- Passionate about mathematics
+- Forward-thinking about computing"""
+```
+
+## Debugging System Prompts
+
+<Steps>
+  <Step title="Test Incrementally">
+    Start with basic system prompt and add complexity gradually:
+    ```python
+    # Start simple
+    system_v1 = "You are a helpful assistant."
+    
+    # Add specificity
+    system_v2 = "You are a helpful assistant specializing in Python."
+    
+    # Add behavior rules
+    system_v3 = system_v2 + " Always include code examples."
+    ```
+  </Step>
+  
+  <Step title="Measure Compliance">
+    ```python
+    def test_system_prompt(system, test_cases):
+        results = []
+        for query, expected_behavior in test_cases:
+            response, _ = model.chat(tokenizer, query, history=None, system=system)
+            complies = check_compliance(response, expected_behavior)
+            results.append(complies)
+        return sum(results) / len(results)
+    ```
+  </Step>
+  
+  <Step title="Iterate and Refine">
+    Refine based on test results until desired behavior is achieved.
+  </Step>
+</Steps>
+
+## Limitations and Considerations
+
+<Warning>
+**Important Limitations:**
+
+- **Model Variations**: Enhanced system prompt support is only in Qwen-1.8B-Chat and Qwen-72B-Chat
+- **Token Cost**: System prompts consume tokens from your context window
+- **Not Foolproof**: Models may still deviate from system prompts in edge cases
+- **Stability**: More complex system prompts may be harder to maintain across long conversations
+</Warning>
+
+## Complete Example
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model with system prompt support
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Define comprehensive system prompt
+system_prompt = """You are an expert Python programming tutor.
+
+Teaching Style:
+- Patient and encouraging
+- Use simple language for complex concepts
+- Provide working code examples
+- Explain not just 'how' but 'why'
+
+Response Format:
+1. Brief explanation of the concept
+2. Code example with comments
+3. Expected output
+4. Common pitfalls to avoid
+
+Constraints:
+- Don't just give solutions; teach the approach
+- Encourage best practices
+- Mention relevant documentation
+"""
+
+# Interactive session
+history = None
+while True:
+    user_input = input("You: ")
+    if user_input.lower() == 'quit':
+        break
+    
+    response, history = model.chat(
+        tokenizer,
+        user_input,
+        history=history,
+        system=system_prompt
+    )
+    print(f"Tutor: {response}\n")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Function Calling" icon="phone" href="/advanced/function-calling">
+    Combine system prompts with function calling
+  </Card>
+  <Card title="Agent Building" icon="robot" href="/advanced/agent">
+    Use system prompts to define agent behavior
+  </Card>
+  <Card title="Long Context" icon="scroll" href="/advanced/long-context">
+    Manage system prompts in long conversations
+  </Card>
+</CardGroup>

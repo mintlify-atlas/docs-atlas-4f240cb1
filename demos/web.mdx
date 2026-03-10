@@ -1,0 +1,531 @@
+---
+title: Web Demo
+description: Gradio-based web interface for Qwen-Chat models
+---
+
+The Web Demo provides a user-friendly browser interface for interacting with Qwen-Chat models using Gradio. This demo supports multi-turn conversations, message regeneration, and can be easily shared or deployed.
+
+## Overview
+
+The web demo (`web_demo.py`) creates an interactive chat interface with:
+
+- Modern web-based UI with chat bubbles
+- Markdown and code syntax highlighting
+- Message regeneration capability
+- History management
+- Shareable public links
+- Auto-launch in browser
+- Customizable server settings
+
+## Installation
+
+<Steps>
+  <Step title="Install Required Packages">
+    Install the core dependencies:
+    ```bash
+    pip install torch transformers gradio mdtex2html
+    ```
+  </Step>
+  
+  <Step title="Verify Gradio Version">
+    The demo requires Gradio 3.x or 4.x:
+    ```bash
+    pip show gradio
+    ```
+  </Step>
+</Steps>
+
+## Basic Usage
+
+### Quick Start
+
+Launch the web demo with default settings:
+
+```bash
+python web_demo.py
+```
+
+The demo will start on `http://127.0.0.1:8000` by default.
+
+### Command-Line Options
+
+<ParamField path="-c, --checkpoint-path" type="string" default="Qwen/Qwen-7B-Chat">
+  Model checkpoint name or path from HuggingFace/ModelScope
+</ParamField>
+
+<ParamField path="--cpu-only" type="flag">
+  Run the demo with CPU only (no GPU required)
+</ParamField>
+
+<ParamField path="--share" type="flag" default="false">
+  Create a publicly shareable Gradio link (tunnels through Gradio servers)
+</ParamField>
+
+<ParamField path="--inbrowser" type="flag" default="false">
+  Automatically open the interface in your default browser
+</ParamField>
+
+<ParamField path="--server-port" type="integer" default="8000">
+  Port number for the web server
+</ParamField>
+
+<ParamField path="--server-name" type="string" default="127.0.0.1">
+  Server hostname or IP address (use "0.0.0.0" to allow external access)
+</ParamField>
+
+### Usage Examples
+
+<CodeGroup>
+```bash Basic Launch
+# Start with default settings
+python web_demo.py
+
+# Access at http://127.0.0.1:8000
+```
+
+```bash Share Publicly
+# Create a public shareable link
+python web_demo.py --share
+
+# Output will include a URL like:
+# Running on public URL: https://xxxxx.gradio.live
+```
+
+```bash Auto-open Browser
+# Automatically launch in browser
+python web_demo.py --inbrowser
+```
+
+```bash Custom Server Settings
+# Allow external access on custom port
+python web_demo.py --server-name 0.0.0.0 --server-port 7860
+
+# Access from other machines at http://<your-ip>:7860
+```
+
+```bash Different Model
+# Use Qwen-14B-Chat
+python web_demo.py -c Qwen/Qwen-14B-Chat --inbrowser
+
+# Use local model
+python web_demo.py -c /path/to/model
+```
+
+```bash CPU Mode
+# Run without GPU
+python web_demo.py --cpu-only --server-port 8080
+```
+</CodeGroup>
+
+## Interface Features
+
+### Chat Interface
+
+The web demo provides a clean, modern chat interface with:
+
+1. **Chat Display**: Shows conversation history with proper formatting
+2. **Input Box**: Multi-line text input for your messages
+3. **Action Buttons**: 
+   - 🚀 **Submit**: Send your message
+   - 🧹 **Clear History**: Reset the conversation
+   - 🤔 **Regenerate**: Re-generate the last response
+
+### Message Formatting
+
+The demo supports rich text formatting:
+
+<Tabs>
+  <Tab title="Markdown">
+    Messages are rendered with full Markdown support:
+    - **Bold** and *italic* text
+    - Lists and bullet points
+    - Links and quotes
+    - Tables
+  </Tab>
+  
+  <Tab title="Code Blocks">
+    Code is highlighted with syntax highlighting:
+    ````
+    ```python
+    def hello():
+        print("Hello, World!")
+    ```
+    ````
+    
+    The demo automatically detects the language and applies appropriate styling.
+  </Tab>
+  
+  <Tab title="LaTeX">
+    Mathematical expressions are rendered:
+    - Inline: `$E = mc^2$`
+    - Block: `$$\int_0^\infty e^{-x^2} dx$$`
+  </Tab>
+</Tabs>
+
+### Key Functions
+
+#### Message Submission
+
+When you submit a message, the interface:
+
+1. Displays your message in the chat
+2. Shows a streaming response from the model
+3. Updates the conversation history
+
+```python web_demo.py:119
+def predict(_query, _chatbot, _task_history):
+    print(f"User: {_parse_text(_query)}")
+    _chatbot.append((_parse_text(_query), ""))
+    full_response = ""
+
+    for response in model.chat_stream(tokenizer, _query, history=_task_history, generation_config=config):
+        _chatbot[-1] = (_parse_text(_query), _parse_text(response))
+        yield _chatbot
+        full_response = _parse_text(response)
+
+    _task_history.append((_query, full_response))
+```
+
+#### Regenerate Response
+
+Click the "Regenerate" button to get a different response to your last message:
+
+```python web_demo.py:134
+def regenerate(_chatbot, _task_history):
+    if not _task_history:
+        yield _chatbot
+        return
+    item = _task_history.pop(-1)
+    _chatbot.pop(-1)
+    yield from predict(item[0], _chatbot, _task_history)
+```
+
+#### Clear History
+
+Reset the conversation and free up memory:
+
+```python web_demo.py:145
+def reset_state(_chatbot, _task_history):
+    _task_history.clear()
+    _chatbot.clear()
+    _gc()
+    return _chatbot
+```
+
+## Deployment Options
+
+### Local Network Access
+
+Allow other devices on your network to access the demo:
+
+```bash
+python web_demo.py --server-name 0.0.0.0 --server-port 8000
+```
+
+Then access from other devices using:
+```
+http://<your-machine-ip>:8000
+```
+
+### Public Sharing
+
+<Warning>
+  Public sharing creates a temporary URL (typically expires in 72 hours) that tunnels through Gradio's servers. Be cautious when sharing sensitive or proprietary models.
+</Warning>
+
+Create a public shareable link:
+
+```bash
+python web_demo.py --share
+```
+
+Output:
+```text
+Running on local URL:  http://127.0.0.1:8000
+Running on public URL: https://xxxxx.gradio.live
+
+This share link expires in 72 hours.
+```
+
+Share the public URL with others - no installation required on their end!
+
+### Production Deployment
+
+For production environments, consider:
+
+<Tabs>
+  <Tab title="Docker">
+    Create a `Dockerfile`:
+    ```dockerfile
+    FROM python:3.10
+    
+    WORKDIR /app
+    COPY requirements.txt .
+    RUN pip install -r requirements.txt
+    
+    COPY web_demo.py .
+    
+    EXPOSE 8000
+    CMD ["python", "web_demo.py", "--server-name", "0.0.0.0", "--server-port", "8000"]
+    ```
+    
+    Build and run:
+    ```bash
+    docker build -t qwen-web-demo .
+    docker run -p 8000:8000 --gpus all qwen-web-demo
+    ```
+  </Tab>
+  
+  <Tab title="Systemd Service">
+    Create `/etc/systemd/system/qwen-web.service`:
+    ```ini
+    [Unit]
+    Description=Qwen Web Demo
+    After=network.target
+    
+    [Service]
+    Type=simple
+    User=www-data
+    WorkingDirectory=/opt/qwen
+    ExecStart=/usr/bin/python3 web_demo.py --server-name 0.0.0.0
+    Restart=always
+    
+    [Install]
+    WantedBy=multi-user.target
+    ```
+    
+    Enable and start:
+    ```bash
+    sudo systemctl enable qwen-web
+    sudo systemctl start qwen-web
+    ```
+  </Tab>
+  
+  <Tab title="Nginx Reverse Proxy">
+    Configure Nginx:
+    ```nginx
+    server {
+        listen 80;
+        server_name your-domain.com;
+        
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Customization
+
+### UI Customization
+
+The demo interface is defined using Gradio Blocks:
+
+```python web_demo.py:151
+with gr.Blocks() as demo:
+    gr.Markdown("""
+<p align="center"><img src="https://qianwen-res.oss-cn-beijing.aliyuncs.com/logo_qwen.jpg" style="height: 80px"/><p>""")
+    gr.Markdown("""<center><font size=8>Qwen-Chat Bot</center>""")
+    
+    chatbot = gr.Chatbot(label='Qwen-Chat', elem_classes="control-height")
+    query = gr.Textbox(lines=2, label='Input')
+    task_history = gr.State([])
+```
+
+You can customize:
+- Logo and branding
+- Colors and styling (via CSS)
+- Button labels and icons
+- Layout and spacing
+
+### Text Processing
+
+The demo includes custom text processing for better display:
+
+```python web_demo.py:78
+def _parse_text(text):
+    lines = text.split("\n")
+    lines = [line for line in lines if line != ""]
+    count = 0
+    for i, line in enumerate(lines):
+        if "```" in line:
+            count += 1
+            items = line.split("`")
+            if count % 2 == 1:
+                lines[i] = f'<pre><code class="language-{items[-1]}">'
+            else:
+                lines[i] = f"<br></code></pre>"
+```
+
+This function:
+- Formats code blocks properly
+- Handles special characters in code
+- Preserves whitespace and indentation
+
+## Performance Optimization
+
+### Memory Management
+
+<Tip>
+  The demo automatically runs garbage collection when clearing history to free up GPU memory.
+</Tip>
+
+```python web_demo.py:110
+def _gc():
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+```
+
+### Queueing
+
+Gradio's queue system is enabled for better concurrency:
+
+```python web_demo.py:192
+demo.queue().launch(
+    share=args.share,
+    inbrowser=args.inbrowser,
+    server_port=args.server_port,
+    server_name=args.server_name,
+)
+```
+
+This allows:
+- Multiple users to interact simultaneously
+- Requests to be processed in order
+- Better handling of long-running generations
+
+### Response Streaming
+
+The demo uses streaming for real-time responses:
+
+```python web_demo.py:124
+for response in model.chat_stream(tokenizer, _query, history=_task_history, generation_config=config):
+    _chatbot[-1] = (_parse_text(_query), _parse_text(response))
+    yield _chatbot
+```
+
+Benefits:
+- Users see responses as they're generated
+- Better perceived performance
+- Can stop generation early if needed
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Port already in use">
+    If port 8000 is occupied:
+    ```bash
+    # Use a different port
+    python web_demo.py --server-port 8080
+    
+    # Or find and kill the process using port 8000
+    lsof -ti:8000 | xargs kill -9
+    ```
+  </Accordion>
+  
+  <Accordion title="Cannot access from other machines">
+    Make sure to:
+    1. Use `--server-name 0.0.0.0` to bind to all interfaces
+    2. Check firewall settings allow the port
+    3. Use the correct IP address (not 127.0.0.1)
+    
+    ```bash
+    # Find your IP
+    hostname -I
+    
+    # Launch with external access
+    python web_demo.py --server-name 0.0.0.0
+    ```
+  </Accordion>
+  
+  <Accordion title="Gradio import errors">
+    If you see import errors:
+    ```bash
+    # Reinstall gradio
+    pip uninstall gradio
+    pip install gradio
+    
+    # Or use a specific version
+    pip install gradio==4.0.0
+    ```
+  </Accordion>
+  
+  <Accordion title="Slow response times">
+    To improve performance:
+    1. Use GPU instead of CPU mode
+    2. Use quantized models (Int4/Int8)
+    3. Reduce max token length in generation config
+    4. Enable Flash Attention if available
+    5. Clear history regularly
+  </Accordion>
+  
+  <Accordion title="Share link not working">
+    If `--share` fails:
+    - Check your internet connection
+    - Ensure Gradio can reach its servers
+    - Try upgrading Gradio: `pip install --upgrade gradio`
+    - Some corporate networks block Gradio tunnels
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Features
+
+### Custom CSS Styling
+
+Add custom CSS to Gradio interface:
+
+```python
+with gr.Blocks(css=".gradio-container {max-width: 1200px}") as demo:
+    # Your interface code
+```
+
+### Adding Authentication
+
+Protect your demo with a password:
+
+```python
+demo.queue().launch(
+    auth=("username", "password"),
+    server_port=args.server_port,
+    server_name=args.server_name,
+)
+```
+
+### Multiple Concurrent Users
+
+Gradio's queue handles multiple users automatically, but for heavy loads consider:
+
+- Use multiple model replicas
+- Implement request batching
+- Add rate limiting
+- Deploy with a load balancer
+
+## Source Code Reference
+
+The web demo implementation can be found at `web_demo.py:1` in the Qwen repository.
+
+Key components:
+- Argument parsing: `web_demo.py:21`
+- Model loading: `web_demo.py:40`
+- Text processing: `web_demo.py:78`
+- Interface definition: `web_demo.py:151`
+- Launch configuration: `web_demo.py:192`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Demo" icon="terminal" href="/demos/cli">
+    Try the command-line interface
+  </Card>
+  <Card title="API Deployment" icon="cloud" href="/api-reference/introduction">
+    Deploy Qwen as an API service
+  </Card>
+</CardGroup>

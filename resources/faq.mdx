@@ -1,0 +1,503 @@
+---
+title: FAQ
+description: Frequently asked questions about Qwen models
+---
+
+Common questions and answers about installing, running, and fine-tuning Qwen models.
+
+## Installation & Environment
+
+<Accordion title="Flash attention installation fails">
+
+Flash Attention is an **optional** feature for accelerating training and inference. You can use Qwen models without installing it.
+
+**Compatibility:**
+- Only NVIDIA GPUs with Turing, Ampere, Ada, and Hopper architecture are supported
+- Examples: H100, A100, RTX 3090, T4, RTX 2080
+- Not supported on older architectures (Pascal, Maxwell, etc.)
+
+**Installation:**
+```bash
+git clone https://github.com/Dao-AILab/flash-attention
+cd flash-attention && pip install .
+```
+
+If installation fails, you can proceed without Flash Attention - models will run normally but potentially slower.
+
+</Accordion>
+
+<Accordion title="Which version of transformers should I use?">
+
+**Recommended:** `transformers>=4.32.0`
+
+This version includes all necessary features for Qwen models. Using older versions may cause compatibility issues.
+
+```bash
+pip install transformers>=4.32.0
+```
+
+</Accordion>
+
+<Accordion title="I downloaded the code and checkpoints but can't load the model locally">
+
+**Checklist:**
+
+1. **Update to latest code:**
+   ```bash
+   cd Qwen
+   git pull
+   ```
+
+2. **Verify all checkpoint files are downloaded:**
+   - Check if all sharded checkpoint files (`.safetensors` or `.bin`) are present
+   - Verify file sizes match expected sizes
+
+3. **Ensure git-lfs is installed:**
+   ```bash
+   git lfs install
+   git lfs pull
+   ```
+
+4. **Check trust_remote_code is set:**
+   ```python
+   model = AutoModelForCausalLM.from_pretrained(
+       "path/to/model",
+       trust_remote_code=True  # Required!
+   )
+   ```
+
+</Accordion>
+
+<Accordion title="qwen.tiktoken not found">
+
+`qwen.tiktoken` is the tokenizer merge file. You must download it for the model to work.
+
+**Problem:** If you cloned the repository without [git-lfs](https://git-lfs.com), this file won't download properly.
+
+**Solution:**
+```bash
+# Install git-lfs
+git lfs install
+
+# Pull LFS files
+cd Qwen
+git lfs pull
+```
+
+Verify the file exists and is not a text pointer (should be ~2MB, not a few bytes).
+
+</Accordion>
+
+<Accordion title="transformers_stream_generator/tiktoken/accelerate not found">
+
+These are required dependencies. Install them with:
+
+```bash
+pip install -r requirements.txt
+```
+
+The `requirements.txt` file is available at:
+[https://github.com/QwenLM/Qwen/blob/main/requirements.txt](https://github.com/QwenLM/Qwen/blob/main/requirements.txt)
+
+</Accordion>
+
+## Demo & Inference
+
+<Accordion title="Is there a demo? CLI or Web UI?">
+
+**Yes!** Qwen provides both CLI and Web UI demos.
+
+**CLI Demo:**
+```bash
+python cli_demo.py
+```
+
+**Web Demo:**
+```bash
+python web_demo.py
+```
+
+See the main README for more detailed usage instructions and configuration options.
+
+</Accordion>
+
+<Accordion title="Can I use CPU only?">
+
+**Yes**, but performance will be significantly slower.
+
+**CPU-only inference:**
+```bash
+python cli_demo.py --cpu-only
+```
+
+**Or in code:**
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cpu",
+    trust_remote_code=True
+).eval()
+```
+
+**Recommended:** Use [qwen.cpp](https://github.com/QwenLM/qwen.cpp) for efficient CPU deployment.
+
+</Accordion>
+
+<Accordion title="Does Qwen support streaming?">
+
+**Yes!** Use the `chat_stream()` function:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen-7B-Chat", device_map="auto", trust_remote_code=True).eval()
+
+for response in model.chat_stream(tokenizer, "Hello", history=None):
+    print(response, end="", flush=True)
+```
+
+See `modeling_qwen.py` for the full implementation.
+
+</Accordion>
+
+<Accordion title="Gibberish output when using chat_stream()">
+
+This happens because individual tokens represent bytes, and a single token may be a meaningless string (incomplete UTF-8 sequence).
+
+**Solution:** Update to the latest tokenizer code.
+
+```bash
+cd Qwen
+git pull
+```
+
+The latest version handles UTF-8 byte sequences correctly during streaming.
+
+</Accordion>
+
+<Accordion title="Generation is not related to the instruction">
+
+**Problem:** You're likely loading **Qwen** (base model) instead of **Qwen-Chat**.
+
+**Qwen** (base model):
+- Pretrained only, no alignment
+- Behaves like a completion model
+- Not instruction-tuned
+
+**Qwen-Chat** (chat model):
+- Fine-tuned with SFT
+- Follows instructions
+- Conversational behavior
+
+**Solution:** Use the Chat model:
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",  # Note: -Chat suffix!
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+</Accordion>
+
+<Accordion title="Is quantization supported?">
+
+**Yes!** Qwen supports Int4 and Int8 quantization via AutoGPTQ.
+
+**Pre-quantized models available:**
+- Qwen-*B-Chat-Int4
+- Qwen-*B-Chat-Int8
+
+**Benefits:**
+- Reduced memory usage
+- Faster inference
+- Minimal performance degradation
+
+**Usage:**
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+See the Quantization documentation for details.
+
+</Accordion>
+
+<Accordion title="Slow performance when processing long sequences">
+
+**Solution:** Update to the latest code.
+
+```bash
+cd Qwen
+git pull
+```
+
+Recent updates include optimizations for long-context processing:
+- Flash Attention 2 support
+- Improved attention mechanisms
+- Better memory management
+
+</Accordion>
+
+<Accordion title="Unsatisfactory performance on long sequences">
+
+**Check NTK settings** in `config.json`:
+
+```json
+{
+  "use_dynamic_ntk": true,
+  "use_logn_attn": true
+}
+```
+
+These should be `true` by default. If they're `false`, enable them for better long-context performance.
+
+**What they do:**
+- `use_dynamic_ntk`: NTK-aware interpolation for position embeddings
+- `use_logn_attn`: LogN attention scaling
+
+Both improve model performance on sequences longer than the training context (2048 tokens).
+
+</Accordion>
+
+## Finetuning
+
+<Accordion title="Can Qwen support SFT or RLHF?">
+
+**SFT (Supervised Fine-Tuning): YES** ✓
+
+Supported methods:
+- **Full-parameter fine-tuning** - Update all parameters
+- **LoRA** - Low-rank adaptation, efficient training
+- **Q-LoRA** - Quantized LoRA, even more memory-efficient
+
+**RLHF (Reinforcement Learning from Human Feedback):**
+Not officially supported yet, but planned for future release.
+
+**Third-party projects** that support Qwen:
+- [FastChat](https://github.com/lm-sys/FastChat)
+- [Firefly](https://github.com/yangjianxin1/Firefly)
+- [LLaMA Efficient Tuning](https://github.com/hiyouga/LLaMA-Efficient-Tuning)
+
+</Accordion>
+
+## Tokenizer
+
+<Accordion title="bos_id/eos_id/pad_id not found">
+
+Qwen uses **only** `<|endoftext|>` as the separator and padding token during training.
+
+**For most use cases:**
+```python
+tokenizer = AutoTokenizer.from_pretrained(
+    'Qwen/Qwen-7B',
+    trust_remote_code=True,
+    pad_token='<|endoftext|>'
+)
+
+# If needed:
+bos_id = tokenizer.eod_id
+eos_id = tokenizer.eod_id  
+pad_id = tokenizer.eod_id
+```
+
+<Warning>
+**Do not** use `<|endoftext|>` as `eos_token` unless you understand the implications. The end of a sentence and the end of a document (which may contain many sentences) are different concepts.
+</Warning>
+
+See the [Tokenization documentation](/resources/tokenization) for more details.
+
+</Accordion>
+
+## Docker
+
+<Accordion title="Docker image download is very slow">
+
+If downloading the official Docker image is slow due to network issues:
+
+**Solution:** Use a Docker registry mirror.
+
+For users in China, see [Alibaba Cloud Container Image Service](https://help.aliyun.com/zh/acr/user-guide/accelerate-the-pulls-of-docker-official-images) for acceleration options.
+
+**Alternative:** Build the image locally from the Dockerfile in the repository.
+
+</Accordion>
+
+## Performance & Optimization
+
+<Accordion title="How can I speed up inference?">
+
+**Methods to improve inference speed:**
+
+1. **Use quantized models** (Int4/Int8)
+   - Faster than BF16
+   - Lower memory usage
+   - Minimal quality loss
+
+2. **Enable Flash Attention**
+   - Requires compatible GPU
+   - Significant speedup for longer sequences
+
+3. **Use vLLM for deployment**
+   - Optimized inference engine
+   - Better batching
+   - Higher throughput
+
+4. **Batch inference**
+   - Process multiple requests together
+   - 40% speedup with Flash Attention enabled
+
+5. **KV cache quantization**
+   - Reduces memory for longer sequences
+   - Allows larger batch sizes
+
+</Accordion>
+
+<Accordion title="Out of memory during training/inference">
+
+**Solutions:**
+
+**For inference:**
+1. Use quantized models (Int4/Int8)
+2. Enable KV cache quantization
+3. Reduce batch size
+4. Use gradient checkpointing
+5. Switch to a smaller model variant
+
+**For training:**
+1. Use Q-LoRA instead of LoRA or full fine-tuning
+2. Reduce batch size and increase gradient accumulation
+3. Use DeepSpeed ZeRO optimization
+4. Train on multiple GPUs
+5. Reduce sequence length
+6. Enable gradient checkpointing
+
+**Memory estimates** available in [Hardware Requirements](/resources/hardware-requirements).
+
+</Accordion>
+
+## Model Selection
+
+<Accordion title="Which model size should I choose?">
+
+**Qwen-1.8B:**
+- Edge devices
+- Low-resource scenarios  
+- Fast inference needed
+- Simple tasks
+
+**Qwen-7B:**
+- General use cases
+- Good balance of quality and speed
+- Single GPU deployment (RTX 3090/4090)
+- Most popular choice
+
+**Qwen-14B:**
+- Better performance needed
+- More complex tasks
+- A100 40GB available
+
+**Qwen-72B:**
+- Best quality
+- Complex reasoning tasks
+- Research applications
+- Multiple A100 GPUs available
+
+**Start with Qwen-7B** unless you have specific requirements.
+
+</Accordion>
+
+<Accordion title="Base model vs Chat model?">
+
+**Use Qwen (Base Model) for:**
+- Completion tasks
+- Further pretraining
+- Custom fine-tuning from scratch
+- Research on base capabilities
+
+**Use Qwen-Chat for:**
+- Conversational AI
+- Instruction following
+- Q&A systems
+- Chat applications
+- Tool usage
+- Most practical applications
+
+**Most users should use Qwen-Chat models.**
+
+</Accordion>
+
+## Common Errors
+
+<Accordion title="trust_remote_code error">
+
+**Error message:**
+```
+ValueError: ... requires you to execute the modeling file in that repo ... set trust_remote_code=True
+```
+
+**Solution:**
+Always set `trust_remote_code=True` when loading Qwen models:
+
+```python
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True  # Required!
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True  # Required!
+)
+```
+
+</Accordion>
+
+<Accordion title="Pydantic version conflicts with DeepSpeed">
+
+**Error:** Conflicts between `pydantic>=2.0` and DeepSpeed.
+
+**Solution:**
+```bash
+pip install "pydantic<2.0" deepspeed
+```
+
+DeepSpeed has known compatibility issues with Pydantic 2.0+.
+
+</Accordion>
+
+<Accordion title="ValueError: Tokenizer class QWenTokenizer does not exist">
+
+This can happen with `peft>=0.8.0`.
+
+**Solutions:**
+
+1. **Downgrade peft:**
+   ```bash
+   pip install "peft<0.8.0"
+   ```
+
+2. **Or move tokenizer files:**
+   Move tokenizer files elsewhere temporarily when loading with peft 0.8.0+.
+
+</Accordion>
+
+## Still Need Help?
+
+If your question isn't answered here:
+
+1. **Check the troubleshooting guide:** [Troubleshooting](/resources/troubleshooting)
+2. **Search existing issues:** [GitHub Issues](https://github.com/QwenLM/Qwen/issues)
+3. **Open a new issue:** Provide details about your environment, code, and error messages
+4. **Join the community:**
+   - [Discord](https://discord.gg/CV4E9rpNSD)
+   - WeChat (see main README)
+
+<Note>
+When reporting issues, please use **English** when possible so more people can understand and help.
+</Note>

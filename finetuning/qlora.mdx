@@ -1,0 +1,695 @@
+---
+title: Q-LoRA Fine-tuning
+description: Memory-efficient fine-tuning using Quantized Low-Rank Adaptation
+---
+
+Q-LoRA (Quantized LoRA) combines 4-bit quantization with LoRA to enable fine-tuning of large language models on consumer GPUs. It uses quantized base models while training LoRA adapters in higher precision.
+
+## Overview
+
+Q-LoRA achieves extreme memory efficiency through:
+
+- **4-bit NormalFloat quantization** of base model weights
+- **16-bit LoRA adapters** for maintained training quality
+- **Paged optimizers** to handle memory spikes
+- **Single GPU training** of 7B models on 12GB GPUs
+- **Minimal performance degradation** compared to full LoRA
+
+<Tip>
+Q-LoRA enables fine-tuning of Qwen-7B on a single **RTX 3090 (24GB)** or even **RTX 3060 (12GB)** with reduced sequence length.
+</Tip>
+
+## When to Use Q-LoRA
+
+Choose Q-LoRA when:
+
+- You have **limited GPU memory** (12-24GB)
+- You need **cost-effective** fine-tuning on consumer hardware
+- You can tolerate **2-3x slower training** than regular LoRA
+- Your task has **moderate quality requirements**
+- You want to fine-tune **larger models** on smaller GPUs
+
+## Hardware Requirements
+
+### Memory Requirements
+
+**Qwen-7B Q-LoRA Fine-tuning (Single GPU):**
+
+| Sequence Length | GPU Memory | Training Speed | Comparison to LoRA |
+|----------------|------------|----------------|--------------------|
+| 256 | 11.5GB | 3.0s/iter | **45% less memory** |
+| 512 | 11.5GB | 3.0s/iter | **44% less memory** |
+| 1024 | 12.3GB | 3.5s/iter | **43% less memory** |
+| 2048 | 13.9GB | 7.0s/iter | **42% less memory** |
+| 4096 | 16.9GB | 11.6s/iter | **43% less memory** |
+| 8192 | 23.5GB | 22.3s/iter | **36% less memory** |
+
+### GPU Recommendations
+
+| Model | Minimum GPU | Consumer GPU | Professional GPU |
+|-------|-------------|--------------|------------------|
+| Qwen-1.8B | GTX 1080 Ti (11GB) | RTX 3060 (12GB) | RTX A4000 (16GB) |
+| Qwen-7B | RTX 3060 (12GB) | RTX 3090 (24GB) | RTX A5000 (24GB) |
+| Qwen-14B | RTX 3090 (24GB) | RTX 4090 (24GB) | A100 (40GB) |
+| Qwen-72B | A100 (80GB) | A100 (80GB) | A100 (80GB) |
+
+<Note>
+Minimum GPU requirements assume sequence length ≤ 1024. Longer sequences require more memory.
+</Note>
+
+## Installation
+
+```bash
+# Install base requirements
+pip install -r requirements.txt
+
+# Install PEFT and DeepSpeed
+pip install "peft<0.8.0" deepspeed
+
+# Install AutoGPTQ for quantization
+pip install auto-gptq optimum
+
+# For single-GPU training, install MPI
+pip install mpi4py
+```
+
+<Warning>
+**Critical**: Use `auto-gptq>=0.5.1` with `torch==2.1` or `auto-gptq<0.5.0` with `torch>=2.0,<2.1` to avoid compatibility issues.
+</Warning>
+
+### Version Compatibility Matrix
+
+| PyTorch | AutoGPTQ | Transformers | Optimum | PEFT |
+|---------|----------|--------------|---------|------|
+| 2.1.x | &gt;=0.5.1 | &gt;=4.35.0 | &gt;=1.14.0 | &gt;=0.6.1 |
+| 2.0.x | &lt;0.5.0 | &lt;4.35.0 | &lt;1.14.0 | &gt;=0.5.0,&lt;0.6.0 |
+
+## Q-LoRA Configuration
+
+Q-LoRA configuration in the training script:
+
+```python
+# From finetune.py lines 313-316
+model = transformers.AutoModelForCausalLM.from_pretrained(
+    model_args.model_name_or_path,
+    config=config,
+    device_map=device_map,
+    quantization_config=GPTQConfig(
+        bits=4,
+        disable_exllama=True
+    ) if training_args.use_lora and lora_args.q_lora else None,
+    trust_remote_code=True
+)
+```
+
+### Key Parameters
+
+<ParamField path="bits" type="int" default={4}>
+  Quantization bit-width. Fixed at **4-bit** for Q-LoRA.
+</ParamField>
+
+<ParamField path="disable_exllama" type="bool" default={true}>
+  Disables ExLlama kernels for compatibility with training.
+</ParamField>
+
+## Single-GPU Training
+
+### Basic Training Script
+
+```bash finetune/finetune_qlora_single_gpu.sh
+#!/bin/bash
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+MODEL="Qwen/Qwen-7B-Chat-Int4"
+DATA="path_to_data.json"
+
+export CUDA_VISIBLE_DEVICES=0
+
+python finetune.py \
+  --model_name_or_path $MODEL \
+  --data_path $DATA \
+  --fp16 True \
+  --output_dir output_qwen \
+  --num_train_epochs 5 \
+  --per_device_train_batch_size 2 \
+  --per_device_eval_batch_size 1 \
+  --gradient_accumulation_steps 8 \
+  --evaluation_strategy "no" \
+  --save_strategy "steps" \
+  --save_steps 1000 \
+  --save_total_limit 10 \
+  --learning_rate 3e-4 \
+  --weight_decay 0.1 \
+  --adam_beta2 0.95 \
+  --warmup_ratio 0.01 \
+  --lr_scheduler_type "cosine" \
+  --logging_steps 1 \
+  --report_to "none" \
+  --model_max_length 512 \
+  --lazy_preprocess True \
+  --gradient_checkpointing \
+  --use_lora \
+  --q_lora \
+  --deepspeed finetune/ds_config_zero2.json
+```
+
+<Warning>
+**Important**: Q-LoRA **must use FP16** (`--fp16 True`), not BF16. This is due to AutoGPTQ quantization requirements.
+</Warning>
+
+### Running Single-GPU Q-LoRA
+
+<Steps>
+  <Step title="Prepare Quantized Model">
+    Use official Int4 quantized models:
+    
+    ```bash
+    # Available quantized models
+    Qwen/Qwen-1.8B-Chat-Int4
+    Qwen/Qwen-7B-Chat-Int4
+    Qwen/Qwen-14B-Chat-Int4
+    Qwen/Qwen-72B-Chat-Int4
+    ```
+    
+    <Note>
+    Only **Chat** models are available in Int4. Base models are not provided in quantized format.
+    </Note>
+  </Step>
+  
+  <Step title="Prepare Training Data">
+    Use the same JSON format as regular LoRA:
+    
+    ```json
+    [
+      {
+        "id": "sample_1",
+        "conversations": [
+          {"from": "user", "value": "Question here"},
+          {"from": "assistant", "value": "Answer here"}
+        ]
+      }
+    ]
+    ```
+  </Step>
+  
+  <Step title="Launch Training">
+    ```bash
+    bash finetune/finetune_qlora_single_gpu.sh \
+      -m Qwen/Qwen-7B-Chat-Int4 \
+      -d train_data.json
+    ```
+    
+    Training will use DeepSpeed for mixed-precision training even on single GPU.
+  </Step>
+  
+  <Step title="Monitor Memory Usage">
+    Watch GPU memory:
+    
+    ```bash
+    watch -n 1 nvidia-smi
+    ```
+    
+    Expected memory usage for Qwen-7B-Chat-Int4:
+    - Initial load: ~4GB
+    - During training: ~11-12GB
+    - Peak: ~13-14GB
+  </Step>
+</Steps>
+
+## Multi-GPU Training
+
+For faster Q-LoRA training:
+
+```bash finetune/finetune_qlora_ds.sh
+#!/bin/bash
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+GPUS_PER_NODE=$(python -c 'import torch; print(torch.cuda.device_count())')
+NNODES=${NNODES:-1}
+NODE_RANK=${NODE_RANK:-0}
+MASTER_ADDR=${MASTER_ADDR:-localhost}
+MASTER_PORT=${MASTER_PORT:-6001}
+
+MODEL="Qwen/Qwen-7B-Chat-Int4"
+DATA="path_to_data.json"
+
+DISTRIBUTED_ARGS="
+    --nproc_per_node $GPUS_PER_NODE \
+    --nnodes $NNODES \
+    --node_rank $NODE_RANK \
+    --master_addr $MASTER_ADDR \
+    --master_port $MASTER_PORT
+"
+
+torchrun $DISTRIBUTED_ARGS finetune.py \
+    --model_name_or_path $MODEL \
+    --data_path $DATA \
+    --fp16 True \
+    --output_dir output_qwen \
+    --num_train_epochs 5 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 1 \
+    --gradient_accumulation_steps 8 \
+    --evaluation_strategy "no" \
+    --save_strategy "steps" \
+    --save_steps 1000 \
+    --save_total_limit 10 \
+    --learning_rate 3e-4 \
+    --weight_decay 0.1 \
+    --adam_beta2 0.95 \
+    --warmup_ratio 0.01 \
+    --lr_scheduler_type "cosine" \
+    --logging_steps 1 \
+    --report_to "none" \
+    --model_max_length 512 \
+    --lazy_preprocess True \
+    --use_lora \
+    --q_lora \
+    --gradient_checkpointing \
+    --deepspeed finetune/ds_config_zero2.json
+```
+
+Run with:
+
+```bash
+bash finetune/finetune_qlora_ds.sh \
+  -m Qwen/Qwen-7B-Chat-Int4 \
+  -d train_data.json
+```
+
+## Loading Q-LoRA Adapters
+
+### Inference with Q-LoRA Adapter
+
+```python
+from peft import AutoPeftModelForCausalLM
+from transformers import AutoTokenizer
+
+# Load quantized model with LoRA adapter
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "output_qwen",  # Path to Q-LoRA adapter
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "output_qwen",
+    trust_remote_code=True
+)
+
+# Run inference
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+<Warning>
+**Q-LoRA Limitation**: You **cannot** merge Q-LoRA adapters with the base model. The adapter must always be loaded separately.
+</Warning>
+
+## Q-LoRA Constraints
+
+### What You Cannot Do
+
+<AccordionGroup>
+  <Accordion title="Cannot Merge Adapters">
+    Unlike regular LoRA, Q-LoRA adapters cannot be merged:
+    
+    ```python
+    # This will NOT work with Q-LoRA
+    merged_model = model.merge_and_unload()  # ❌ Error
+    ```
+    
+    **Reason**: Base model is quantized (4-bit), LoRA adapters are FP16. Merging requires same precision.
+    
+    **Workaround**: Always load adapter separately for inference.
+  </Accordion>
+  
+  <Accordion title="Cannot Train Embedding Layers">
+    Q-LoRA with Int4 models cannot make embedding/output layers trainable:
+    
+    ```python
+    # From finetune.py line 331-332
+    if lora_args.q_lora or is_chat_model:
+        modules_to_save = None  # No additional trainable params
+    ```
+    
+    **Impact**: Cannot add new tokens during Q-LoRA training.
+    
+    **Solution**: Use regular LoRA if you need to add custom tokens.
+  </Accordion>
+  
+  <Accordion title="Must Use Int4 Chat Models">
+    Q-LoRA requires official Int4 quantized **chat** models:
+    
+    - ✓ `Qwen/Qwen-7B-Chat-Int4` (supported)
+    - ✗ `Qwen/Qwen-7B-Int4` (does not exist)
+    - ✗ `Qwen/Qwen-7B` (cannot be used directly)
+    
+    **Reason**: Base models need trainable embeddings which Q-LoRA doesn't support.
+  </Accordion>
+  
+  <Accordion title="Cannot Use BF16">
+    Q-LoRA training **must use FP16**, not BF16:
+    
+    ```bash
+    --fp16 True   # ✓ Required
+    --bf16 True   # ❌ Will fail
+    ```
+    
+    **Reason**: AutoGPTQ quantization is optimized for FP16 operations.
+  </Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+### Q-LoRA vs LoRA Comparison
+
+**Qwen-7B Training (Sequence Length 1024):**
+
+| Metric | LoRA | Q-LoRA | Difference |
+|--------|------|--------|------------|
+| GPU Memory | 21.5GB | 12.3GB | **43% reduction** |
+| Training Speed | 2.8s/iter | 3.5s/iter | **25% slower** |
+| Trainable Params | 70M | 70M | Same |
+| Model Quality | 100% | 95-98% | Slight degradation |
+
+### Speed-Memory Tradeoff
+
+Q-LoRA trades speed for memory:
+
+- **2-3x slower** than regular LoRA
+- **40-50% less memory** than regular LoRA
+- Ideal when memory is the bottleneck
+
+**Optimization tips**:
+1. Use Flash Attention 2 (if compatible)
+2. Enable gradient checkpointing
+3. Use `--lazy_preprocess True`
+4. Increase `gradient_accumulation_steps` to reduce step overhead
+
+## Hyperparameter Guide
+
+### Learning Rate
+
+```bash
+--learning_rate 3e-4
+```
+
+Same as regular LoRA. Adjust based on results:
+
+- Too high: Training loss oscillates or diverges
+- Too low: Slow convergence, model doesn't adapt
+
+### LoRA Configuration
+
+```bash
+# Default Q-LoRA config (same as LoRA)
+--lora_r 64 \
+--lora_alpha 16 \
+--lora_dropout 0.05
+```
+
+<Tip>
+Q-LoRA uses the same LoRA hyperparameters as regular LoRA. The only difference is the quantized base model.
+</Tip>
+
+### Batch Size for Memory Constraints
+
+If hitting memory limits:
+
+```bash
+# Reduce batch size
+--per_device_train_batch_size 1 \
+--gradient_accumulation_steps 16  # Compensate with more accumulation
+```
+
+### Sequence Length Optimization
+
+| GPU Memory | Recommended Max Length | Batch Size |
+|------------|------------------------|------------|
+| 12GB | 512 | 1 |
+| 16GB | 1024 | 1 |
+| 24GB | 2048 | 1-2 |
+| 40GB+ | 4096+ | 2-4 |
+
+## Creating Custom Quantized Models
+
+If you need to quantize a fine-tuned model:
+
+<Steps>
+  <Step title="Train with Regular LoRA or Full Fine-tuning">
+    ```bash
+    bash finetune/finetune_lora_single_gpu.sh \
+      -m Qwen/Qwen-7B-Chat \
+      -d train_data.json
+    ```
+  </Step>
+  
+  <Step title="Merge LoRA Adapter (if using LoRA)">
+    ```python
+    from peft import AutoPeftModelForCausalLM
+    
+    model = AutoPeftModelForCausalLM.from_pretrained(
+        "output_qwen",
+        device_map="auto",
+        trust_remote_code=True
+    )
+    
+    merged_model = model.merge_and_unload()
+    merged_model.save_pretrained("merged_model")
+    ```
+  </Step>
+  
+  <Step title="Quantize to Int4">
+    ```bash
+    python run_gptq.py \
+      --model_name_or_path merged_model \
+      --data_path calibration_data.json \
+      --out_path quantized_model \
+      --bits 4
+    ```
+    
+    This requires a calibration dataset (can reuse training data).
+  </Step>
+  
+  <Step title="Use Quantized Model for Q-LoRA">
+    ```bash
+    bash finetune/finetune_qlora_single_gpu.sh \
+      -m quantized_model \
+      -d new_train_data.json
+    ```
+  </Step>
+</Steps>
+
+<Note>
+See [Full-Parameter Fine-tuning](/finetuning/full-parameter#quantize-fine-tuned-models) for detailed quantization instructions.
+</Note>
+
+## Model Quality
+
+### Benchmark Results
+
+**Qwen-7B-Chat Performance:**
+
+| Quantization | MMLU | C-Eval | GSM8K | HumanEval |
+|--------------|:----:|:------:|:-----:|:---------:|
+| BF16 (baseline) | 55.8 | 59.7 | 50.3 | 37.2 |
+| Int8 | 55.4 | 59.4 | 48.3 | 34.8 |
+| Int4 (Q-LoRA) | 55.1 | 59.2 | 49.7 | 29.9 |
+
+**Quality degradation**: ~1-3% across benchmarks
+
+### When Quality Matters
+
+<Check>**Q-LoRA is suitable for:**</Check>
+- Domain adaptation
+- Style transfer
+- Instruction following
+- Task-specific fine-tuning
+- RAG applications
+
+<Warning>**Consider alternatives for:**</Warning>
+- Mathematical reasoning (use LoRA or full fine-tuning)
+- Complex code generation
+- Tasks requiring maximum accuracy
+- Production models with strict quality requirements
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="AutoGPTQ Installation Failed">
+    **Issue**: Cannot install auto-gptq or compilation errors
+    
+    **Solutions**:
+    1. Use pre-compiled wheels:
+    ```bash
+    pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu118/
+    ```
+    
+    2. Check CUDA version compatibility:
+    ```bash
+    nvcc --version  # Must match PyTorch CUDA version
+    ```
+    
+    3. Install build dependencies:
+    ```bash
+    # Ubuntu/Debian
+    sudo apt-get install build-essential
+    ```
+  </Accordion>
+  
+  <Accordion title="Out of Memory on 12GB GPU">
+    **Solutions**:
+    1. Reduce sequence length:
+    ```bash
+    --model_max_length 256  # or even 128
+    ```
+    
+    2. Reduce batch size:
+    ```bash
+    --per_device_train_batch_size 1 \
+    --gradient_accumulation_steps 32
+    ```
+    
+    3. Reduce LoRA rank:
+    ```bash
+    --lora_r 32
+    ```
+    
+    4. Use smaller model:
+    ```bash
+    -m Qwen/Qwen-1.8B-Chat-Int4
+    ```
+  </Accordion>
+  
+  <Accordion title="Training Extremely Slow">
+    **Expected**: Q-LoRA is 2-3x slower than LoRA
+    
+    **Optimizations**:
+    1. Increase gradient accumulation (reduces overhead):
+    ```bash
+    --gradient_accumulation_steps 16
+    ```
+    
+    2. Use lazy preprocessing:
+    ```bash
+    --lazy_preprocess True
+    ```
+    
+    3. Reduce logging frequency:
+    ```bash
+    --logging_steps 10
+    ```
+    
+    4. Disable evaluation:
+    ```bash
+    --evaluation_strategy "no"
+    ```
+  </Accordion>
+  
+  <Accordion title="Cannot Load Quantized Model">
+    **Issue**: `KeyError` or missing files when loading Int4 model
+    
+    **Solutions**:
+    1. Verify model is Int4 quantized:
+    ```bash
+    ls -la Qwen/Qwen-7B-Chat-Int4/
+    # Should contain: gptq_config.json, quantize_config.json
+    ```
+    
+    2. Install required packages:
+    ```bash
+    pip install auto-gptq optimum
+    ```
+    
+    3. Copy missing files manually:
+    ```bash
+    cp Qwen/Qwen-7B-Chat-Int4/*.cu .
+    cp Qwen/Qwen-7B-Chat-Int4/*.cpp .
+    ```
+  </Accordion>
+  
+  <Accordion title="Loss Not Decreasing">
+    **Debugging steps**:
+    1. Verify data quality:
+    ```python
+    import json
+    with open("train_data.json") as f:
+        data = json.load(f)
+    print(data[0])  # Check format
+    ```
+    
+    2. Increase learning rate:
+    ```bash
+    --learning_rate 5e-4  # Try higher
+    ```
+    
+    3. Increase LoRA rank:
+    ```bash
+    --lora_r 128
+    ```
+    
+    4. Train for more epochs:
+    ```bash
+    --num_train_epochs 10
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced: Manual Quantization Configuration
+
+For custom quantization settings:
+
+```python
+from transformers import AutoModelForCausalLM, GPTQConfig
+
+quantization_config = GPTQConfig(
+    bits=4,
+    group_size=128,
+    damp_percent=0.01,
+    desc_act=False,
+    sym=True,
+    true_sequential=True,
+    disable_exllama=True,  # Required for training
+    model_seqlen=2048
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    quantization_config=quantization_config,
+    device_map="auto",
+    trust_remote_code=True
+)
+```
+
+<Warning>
+Custom quantization configurations are advanced. Use official Int4 models unless you have specific requirements.
+</Warning>
+
+## Best Practices
+
+<Check>**Do's**</Check>
+- Use official Int4 chat models for Q-LoRA
+- Always use FP16 precision, never BF16
+- Enable gradient checkpointing for memory savings
+- Use DeepSpeed even for single-GPU training
+- Monitor GPU memory usage during training
+- Start with shorter sequences (512 tokens)
+
+<Check>**Don'ts**</Check>
+- Don't try to merge Q-LoRA adapters (not supported)
+- Don't use Q-LoRA if you need to add custom tokens
+- Don't expect same speed as regular LoRA
+- Don't use Q-LoRA for production models if quality is critical
+- Don't use base models with Q-LoRA (embedding layers need training)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LoRA Fine-tuning" icon="puzzle-piece" href="/finetuning/lora">
+    Compare with regular LoRA for better quality
+  </Card>
+  <Card title="Multi-node Training" icon="network-wired" href="/finetuning/multinode">
+    Scale Q-LoRA training across multiple machines
+  </Card>
+</CardGroup>

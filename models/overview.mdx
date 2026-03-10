@@ -1,0 +1,179 @@
+---
+title: 'Model Overview'
+description: 'Complete overview of the Qwen model family'
+---
+
+# Qwen Model Family
+
+Qwen (通义千问) is a series of large language models developed by Alibaba Cloud. The family includes both base pretrained models and chat-aligned models across multiple parameter scales.
+
+## Available Models
+
+The Qwen series consists of four main model sizes, each available in both base and chat variants:
+
+<CardGroup cols={2}>
+  <Card title="Qwen-1.8B" icon="brain" href="/models/base-models#qwen-1-8b">
+    Compact model for efficient deployment
+    - 1.8 billion parameters
+    - 32K context length
+    - 2.2T training tokens
+  </Card>
+  
+  <Card title="Qwen-7B" icon="microchip" href="/models/base-models#qwen-7b">
+    Balanced model for general use
+    - 7 billion parameters
+    - 32K context length
+    - 2.4T training tokens
+  </Card>
+  
+  <Card title="Qwen-14B" icon="server" href="/models/base-models#qwen-14b">
+    Enhanced performance model
+    - 14 billion parameters
+    - 8K context length
+    - 3.0T training tokens
+  </Card>
+  
+  <Card title="Qwen-72B" icon="database" href="/models/base-models#qwen-72b">
+    Flagship large-scale model
+    - 72 billion parameters
+    - 32K context length
+    - 3.0T training tokens
+  </Card>
+</CardGroup>
+
+## Model Variants
+
+### Base Models
+
+Base models are pretrained language models suitable for further fine-tuning:
+
+- **Qwen-1.8B**, **Qwen-7B**, **Qwen-14B**, **Qwen-72B**
+- Pretrained on up to 3 trillion tokens of multilingual data
+- Focus on Chinese and English languages
+- Support for various domains: web documents, code, mathematics, reasoning
+
+### Chat Models
+
+Chat models are aligned with human preferences using supervised fine-tuning:
+
+- **Qwen-1.8B-Chat**, **Qwen-7B-Chat**, **Qwen-14B-Chat**, **Qwen-72B-Chat**
+- Fine-tuned for conversational interactions
+- Enhanced safety and service-oriented capabilities
+- Support for tool usage and code interpretation
+
+### Quantized Models
+
+Quantized versions reduce memory requirements while maintaining performance:
+
+<Tabs>
+  <Tab title="Int4">
+    **4-bit quantization** - Lowest memory footprint
+    - Qwen-1.8B-Chat-Int4
+    - Qwen-7B-Chat-Int4
+    - Qwen-14B-Chat-Int4
+    - Qwen-72B-Chat-Int4
+    
+    **Memory Usage**: ~50-70% reduction vs BF16
+  </Tab>
+  
+  <Tab title="Int8">
+    **8-bit quantization** - Balanced performance
+    - Qwen-1.8B-Chat-Int8
+    - Qwen-7B-Chat-Int8
+    - Qwen-14B-Chat-Int8
+    - Qwen-72B-Chat-Int8
+    
+    **Memory Usage**: ~30-40% reduction vs BF16
+  </Tab>
+</Tabs>
+
+## Performance Overview
+
+Qwen models demonstrate competitive performance across multiple benchmarks:
+
+### Qwen-72B Benchmark Results
+
+| Benchmark | Qwen-72B | LLaMA2-70B | GPT-3.5 |
+|-----------|----------|------------|----------|
+| MMLU      | **77.4** | 69.8      | 70.0     |
+| C-Eval    | **83.3** | -         | 54.4     |
+| GSM8K     | **78.9** | 56.8      | 57.1     |
+| HumanEval | **35.4** | 29.9      | 48.1     |
+| MATH      | **35.2** | 13.5      | 34.1     |
+| BBH       | **67.7** | 51.2      | 70.0     |
+
+<Note>
+Qwen-72B achieves better performance than LLaMA2-70B on all tasks and outperforms GPT-3.5 on 7 out of 10 benchmark tasks.
+</Note>
+
+## Key Features
+
+### Multilingual Support
+
+- **Primary Languages**: Chinese and English
+- **Extended Support**: Japanese, Korean, Arabic, Thai, Vietnamese, and more
+- **Vocabulary Size**: 151,851 tokens (optimized for multilingual efficiency)
+- **Tokenizer**: Based on tiktoken with efficient number encoding
+
+### Long Context Support
+
+Qwen models support extended context lengths through multiple techniques:
+
+- **Dynamic NTK-aware interpolation**: Extends context beyond training length
+- **LogN attention scaling**: Improves long-sequence performance
+- **Local window attention**: Reduces memory usage for very long contexts
+- **Context Extension**: From 2048 to 32K tokens (model-dependent)
+
+### Architecture Highlights
+
+- **Base Architecture**: Transformer decoder-only (similar to LLaMA)
+- **Positional Encoding**: Rotary Position Embedding (RoPE)
+- **Activation Function**: SwiGLU
+- **Normalization**: RMSNorm
+- **Attention**: Flash Attention 2 support for efficient training
+- **Embedding**: Untied input/output embeddings
+
+## Model Availability
+
+<CardGroup cols={2}>
+  <Card title="Hugging Face" icon="huggingface" href="https://huggingface.co/Qwen">
+    Access models on Hugging Face Hub
+  </Card>
+  
+  <Card title="ModelScope" icon="cloud" href="https://modelscope.cn/organization/qwen">
+    Download from ModelScope (optimized for China)
+  </Card>
+</CardGroup>
+
+## Quick Comparison
+
+| Model     | Release Date | Context | System Prompt | Training Tokens | Min GPU (Q-LoRA) | Min GPU (Int4) |
+|-----------|--------------|---------|---------------|-----------------|------------------|----------------|
+| Qwen-1.8B | 2023-11-30   | 32K     | ✅            | 2.2T            | 5.8GB            | 2.9GB          |
+| Qwen-7B   | 2023-08-03   | 32K     | ❌            | 2.4T            | 11.5GB           | 8.2GB          |
+| Qwen-14B  | 2023-09-25   | 8K      | ❌            | 3.0T            | 18.7GB           | 13.0GB         |
+| Qwen-72B  | 2023-11-30   | 32K     | ✅            | 3.0T            | 61.4GB           | 48.9GB         |
+
+<Note>
+**System Prompt Enhancement**: Qwen-1.8B and Qwen-72B have strengthened system prompt capabilities for better instruction following.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Base Models" icon="code" href="/models/base-models">
+    Explore base pretrained models for fine-tuning
+  </Card>
+  
+  <Card title="Chat Models" icon="message" href="/models/chat-models">
+    Learn about conversation-aligned models
+  </Card>
+  
+  <Card title="Model Selection" icon="compass" href="/models/model-selection">
+    Choose the right model for your use case
+  </Card>
+  
+  <Card title="Getting Started" icon="rocket" href="/quickstart">
+    Start using Qwen models
+  </Card>
+</CardGroup>

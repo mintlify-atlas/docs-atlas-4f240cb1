@@ -1,0 +1,375 @@
+---
+title: 'Long Context Handling'
+description: 'Leverage Qwen models for processing long sequences up to 32K tokens'
+---
+
+## Overview
+
+Qwen models support extended context lengths up to **32K tokens**, enabling processing of long documents, extensive conversations, and large codebases. Different model sizes support different context lengths:
+
+| Model | Max Context Length | Special Features |
+|-------|-------------------|------------------|
+| **Qwen-1.8B** | 32K | System prompt support |
+| **Qwen-7B** | 32K | Extended from 8K |
+| **Qwen-14B** | 8K | Standard context |
+| **Qwen-72B** | 32K | System prompt support |
+
+## Context Extension Techniques
+
+Qwen employs several advanced techniques to extend context length effectively:
+
+### NTK-Aware Interpolation
+
+NTK (Neural Tangent Kernel) aware interpolation adapts the positional encoding to longer sequences without degrading performance on shorter sequences.
+
+### Window Attention
+
+Window attention mechanisms allow the model to efficiently process longer sequences by focusing on relevant segments.
+
+### LogN Attention Scaling
+
+Logarithmic scaling of attention scores helps maintain stable training and inference across different context lengths.
+
+### RoPE with Extended Base
+
+For Qwen-72B, we adapt Rotary Position Embeddings (RoPE) with a larger rotary base to support 32K tokens:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Qwen-72B automatically handles 32K context
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-72B-Chat",
+    trust_remote_code=True
+)
+
+# No special configuration needed for long context
+response, _ = model.chat(tokenizer, long_text_query, history=None)
+```
+
+## Perplexity Performance
+
+We evaluated Qwen models on the arXiv dataset with different context lengths:
+
+<Tabs>
+  <Tab title="Qwen-7B">
+    | Context Length | Perplexity |
+    |---------------|------------|
+    | 1K | 4.03 |
+    | 2K | 3.78 |
+    | 4K | 3.58 |
+    | 8K | 3.53 |
+    | 16K | 3.45 |
+    | 32K | 3.43 |
+    
+    Qwen-7B maintains strong performance up to 32K tokens with minimal perplexity increase.
+  </Tab>
+  
+  <Tab title="Qwen-14B">
+    | Context Length | Perplexity |
+    |---------------|------------|
+    | 1K | 3.46 |
+    | 2K | 3.29 |
+    | 4K | 3.16 |
+    | 8K | 3.13 |
+    
+    Qwen-14B shows excellent performance within its 8K context window.
+  </Tab>
+  
+  <Tab title="Qwen-72B">
+    | Context Length | Perplexity |
+    |---------------|------------|
+    | 1K | 2.98 |
+    | 2K | 2.74 |
+    | 4K | 2.61 |
+    | 8K | 2.56 |
+    | 16K | 2.49 |
+    | 32K | 2.45 |
+    
+    Qwen-72B achieves outstanding perplexity scores even at maximum context length.
+  </Tab>
+</Tabs>
+
+## Long Context Understanding Evaluation
+
+Qwen-72B-Chat was evaluated on [L-Eval](https://arxiv.org/abs/2307.11088) benchmark for long text understanding:
+
+| Model | Context Length | Average | Coursera | GSM | QuALITY | TOEFL | CodeU | SFcition | AVG w/o Code |
+|-------|----------------|---------|----------|-----|---------|-------|-------|----------|-------------|
+| **Qwen-72B-Chat** | 32K | **62.30** | 58.13 | 76.00 | **77.22** | **86.24** | 6.66 | **69.53** |
+| GPT-3.5-Turbo-16K | 16K | 54.19 | 60.03 | 69.00 | 61.83 | 78.43 | 11.58 | 63.01 |
+| Claude-1.3 | 100K | 60.14 | **66.61** | **84.00** | 72.65 | 75.36 | 6.11 | 63.36 |
+
+<Note>
+Qwen-72B-Chat demonstrates excellent information retrieval across all positions within its 32K context window, proving its robust long context capabilities.
+</Note>
+
+## Using Long Context in Practice
+
+### Processing Long Documents
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Load long document
+with open('long_document.txt', 'r') as f:
+    document = f.read()
+
+# Ask questions about the document
+query = f"""Based on this document:
+
+{document}
+
+Question: What are the main conclusions?"""
+
+response, _ = model.chat(tokenizer, query, history=None)
+print(response)
+```
+
+### Multi-Document Analysis
+
+<CodeGroup>
+```python Summarize Multiple Documents
+# Combine multiple documents
+documents = []
+for i in range(5):
+    with open(f'document_{i}.txt', 'r') as f:
+        documents.append(f.read())
+
+combined = "\n\n---\n\n".join([
+    f"Document {i+1}:\n{doc}"
+    for i, doc in enumerate(documents)
+])
+
+query = f"""{combined}
+
+Please provide a comprehensive summary of all documents above."""
+
+response, _ = model.chat(tokenizer, query, history=None)
+```
+
+```python Extract Information
+# Extract structured information from long text
+query = f"""Review the following contract:
+
+{long_contract}
+
+Extract the following information in JSON format:
+- Parties involved
+- Key terms and conditions
+- Important dates
+- Financial terms"""
+
+response, _ = model.chat(tokenizer, query, history=None)
+import json
+data = json.loads(response)
+```
+</CodeGroup>
+
+### Extended Conversations
+
+```python
+# Maintain long conversation history
+history = []
+
+for turn in range(50):  # Many conversation turns
+    user_input = get_user_input()
+    response, history = model.chat(tokenizer, user_input, history=history)
+    print(f"Qwen: {response}")
+    
+    # Check context length
+    context_tokens = sum(len(tokenizer.encode(msg)) for msg in history)
+    print(f"Context tokens: {context_tokens}")
+    
+    if context_tokens > 28000:  # Leave buffer before 32K limit
+        # Summarize and reset
+        summary_prompt = "Please summarize our conversation so far."
+        summary, _ = model.chat(tokenizer, summary_prompt, history=history)
+        history = [summary]  # Start fresh with summary
+```
+
+### Code Analysis
+
+```python
+# Analyze large codebases
+import os
+import glob
+
+def collect_code_files(directory, extension=".py"):
+    """Collect all code files from directory."""
+    code_files = []
+    for filepath in glob.glob(f"{directory}/**/*{extension}", recursive=True):
+        with open(filepath, 'r') as f:
+            code_files.append({
+                'path': filepath,
+                'content': f.read()
+            })
+    return code_files
+
+# Collect files
+files = collect_code_files('./my_project')
+
+# Combine into single context
+codebase = "\n\n".join([
+    f"# File: {f['path']}\n{f['content']}"
+    for f in files
+])
+
+query = f"""Analyze this codebase:
+
+{codebase}
+
+Provide:
+1. Overview of architecture
+2. Main components and their responsibilities
+3. Potential improvements
+4. Security concerns"""
+
+response, _ = model.chat(tokenizer, query, history=None)
+```
+
+## Memory Optimization for Long Context
+
+### KV Cache Quantization
+
+Reduce memory usage when processing long contexts:
+
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    use_cache_quantization=True,  # Enable KV cache quantization
+    use_cache_kernel=True,
+    use_flash_attn=False  # Cannot use with KV cache quantization
+)
+```
+
+**Memory Savings with KV Cache Quantization:**
+
+| Sequence Length | Without Quantization | With Quantization | Savings |
+|----------------|---------------------|-------------------|----------|
+| 512 | 15.2 GB | 15.0 GB | 200 MB |
+| 1024 | 16.3 GB | 15.5 GB | 800 MB |
+| 2048 | 17.6 GB | 15.8 GB | 1.8 GB |
+| 4096 | 19.5 GB | 16.6 GB | 2.9 GB |
+| 8192 | 23.2 GB | 17.6 GB | 5.6 GB |
+
+### Batch Size Optimization
+
+<Tabs>
+  <Tab title="Without KV Quantization">
+    | Batch Size | Memory Usage |
+    |-----------|-------------|
+    | 1 | 16.3 GB |
+    | 4 | 24.1 GB |
+    | 16 | 31.7 GB |
+    | 32 | 48.7 GB |
+    | 64 | OOM |
+  </Tab>
+  
+  <Tab title="With KV Quantization">
+    | Batch Size | Memory Usage |
+    |-----------|-------------|
+    | 1 | 15.5 GB |
+    | 4 | 17.2 GB |
+    | 16 | 22.3 GB |
+    | 32 | 30.2 GB |
+    | 64 | 48.2 GB |
+    | 100 | 72.4 GB |
+  </Tab>
+</Tabs>
+
+## Best Practices for Long Context
+
+<CardGroup cols={2}>
+  <Card title="Chunk Strategically" icon="scissors">
+    For extremely long documents, chunk logically and process with overlap
+  </Card>
+  <Card title="Use Summarization" icon="compress">
+    Summarize earlier parts of long conversations to manage context
+  </Card>
+  <Card title="Monitor Token Count" icon="gauge">
+    Track token usage to avoid hitting context limits
+  </Card>
+  <Card title="Enable KV Quantization" icon="memory">
+    Use KV cache quantization for longer sequences
+  </Card>
+</CardGroup>
+
+## Token Management
+
+```python
+def manage_context(tokenizer, text, max_tokens=30000):
+    """
+    Ensure text fits within token limit.
+    
+    Args:
+        tokenizer: Qwen tokenizer
+        text: Input text
+        max_tokens: Maximum allowed tokens
+    
+    Returns:
+        Truncated text if necessary
+    """
+    tokens = tokenizer.encode(text)
+    
+    if len(tokens) > max_tokens:
+        # Truncate from beginning (keep most recent)
+        tokens = tokens[-max_tokens:]
+        text = tokenizer.decode(tokens)
+        print(f"Warning: Text truncated to {max_tokens} tokens")
+    
+    return text
+
+# Usage
+processed_text = manage_context(tokenizer, very_long_text)
+response, _ = model.chat(tokenizer, processed_text, history=None)
+```
+
+## Performance Considerations
+
+<Note>
+**Important Notes:**
+
+- **Memory**: Long contexts require significant GPU memory. Consider using multiple GPUs or KV cache quantization
+- **Speed**: Generation speed decreases with longer contexts due to attention computation
+- **Quality**: While Qwen maintains strong performance at long contexts, accuracy may vary by task
+- **Flash Attention**: Using Flash Attention can significantly improve speed and memory efficiency
+</Note>
+
+## Supported Models
+
+Long context support by model:
+
+- ✅ **Qwen-1.8B**: 32K tokens
+- ✅ **Qwen-7B**: 32K tokens (extended from 8K)
+- ⚠️ **Qwen-14B**: 8K tokens
+- ✅ **Qwen-72B**: 32K tokens
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="System Prompts" icon="terminal" href="/advanced/system-prompts">
+    Use system prompts to guide long context processing
+  </Card>
+  <Card title="Agent Building" icon="robot" href="/advanced/agent">
+    Build agents that leverage long context
+  </Card>
+</CardGroup>

@@ -1,0 +1,337 @@
+---
+title: LoRA Configuration
+description: Configure Low-Rank Adaptation for parameter-efficient fine-tuning
+---
+
+## Overview
+
+LoRA (Low-Rank Adaptation) enables efficient fine-tuning of large language models by training small adapter matrices instead of all model parameters. This dramatically reduces memory requirements and training time while maintaining performance.
+
+## LoraArguments
+
+Configure LoRA training with these parameters:
+
+```python
+from dataclasses import dataclass, field
+from typing import List
+
+@dataclass
+class LoraArguments:
+    lora_r: int = 64
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+    lora_target_modules: List[str] = field(
+        default_factory=lambda: ["c_attn", "c_proj", "w1", "w2"]
+    )
+    lora_weight_path: str = ""
+    lora_bias: str = "none"
+    q_lora: bool = False
+```
+
+## Core Parameters
+
+### LoRA Rank
+
+<ParamField path="lora_r" type="int" default="64">
+  Rank of the LoRA update matrices. Controls the size of adapter weights:
+  - **Lower (8-16)**: Fewer parameters, faster training, may underfit
+  - **Medium (32-64)**: Balanced performance and efficiency (recommended)
+  - **Higher (128+)**: More expressive, closer to full fine-tuning
+  
+  ```bash
+  --lora_r 64
+  ```
+</ParamField>
+
+### LoRA Alpha
+
+<ParamField path="lora_alpha" type="int" default="16">
+  Scaling factor for LoRA updates. The effective learning rate multiplier is `lora_alpha / lora_r`:
+  - Typical values: 16, 32, 64
+  - Higher values increase the influence of LoRA updates
+  - Usually set to `lora_r` or `lora_r / 2`
+  
+  ```bash
+  --lora_alpha 16
+  ```
+</ParamField>
+
+### LoRA Dropout
+
+<ParamField path="lora_dropout" type="float" default="0.05">
+  Dropout probability for LoRA layers:
+  - `0.0`: No dropout
+  - `0.05-0.1`: Light regularization (recommended)
+  - `0.1-0.3`: Stronger regularization
+  
+  ```bash
+  --lora_dropout 0.05
+  ```
+</ParamField>
+
+## Target Modules
+
+<ParamField path="lora_target_modules" type="list[str]" default='["c_attn", "c_proj", "w1", "w2"]'>
+  List of module names to apply LoRA to. For Qwen models:
+  - `c_attn`: Attention query/key/value projections
+  - `c_proj`: Attention output projection
+  - `w1`, `w2`: FFN layers
+  
+  ```bash
+  --lora_target_modules c_attn c_proj w1 w2
+  ```
+</ParamField>
+
+### Common Configurations
+
+**Attention only** (fastest, least parameters):
+```bash
+--lora_target_modules c_attn
+```
+
+**Attention + output** (balanced):
+```bash
+--lora_target_modules c_attn c_proj
+```
+
+**Full coverage** (best performance):
+```bash
+--lora_target_modules c_attn c_proj w1 w2
+```
+
+## Bias Training
+
+<ParamField path="lora_bias" type="str" default="none">
+  Which bias parameters to train:
+  - `"none"`: No bias training (fastest)
+  - `"all"`: Train all bias parameters
+  - `"lora_only"`: Train only biases of LoRA modules
+  
+  ```bash
+  --lora_bias none
+  ```
+</ParamField>
+
+## Quantized LoRA (QLoRA)
+
+<ParamField path="q_lora" type="bool" default="False">
+  Enable QLoRA for 4-bit quantized fine-tuning:
+  - Reduces memory usage by ~75%
+  - Enables fine-tuning large models on consumer GPUs
+  - Slight performance trade-off
+  
+  ```bash
+  --q_lora
+  ```
+</ParamField>
+
+### QLoRA Configuration
+
+When using QLoRA, the model is automatically loaded with 4-bit quantization:
+
+```python
+from transformers import GPTQConfig
+
+if lora_args.q_lora:
+    quantization_config = GPTQConfig(
+        bits=4,
+        disable_exllama=True
+    )
+```
+
+## Loading Pretrained LoRA
+
+<ParamField path="lora_weight_path" type="str" default="">
+  Path to pretrained LoRA weights to continue training:
+  ```bash
+  --lora_weight_path ./output/checkpoint-1000
+  ```
+</ParamField>
+
+## Complete Examples
+
+### Standard LoRA Training
+
+```bash
+python finetune.py \
+  --model_name_or_path Qwen/Qwen-7B \
+  --data_path train.json \
+  --output_dir ./output/lora \
+  --use_lora \
+  --lora_r 64 \
+  --lora_alpha 16 \
+  --lora_dropout 0.05 \
+  --lora_target_modules c_attn c_proj w1 w2 \
+  --num_train_epochs 3 \
+  --per_device_train_batch_size 4 \
+  --gradient_accumulation_steps 4 \
+  --learning_rate 1e-4 \
+  --bf16
+```
+
+### QLoRA Training (Memory Efficient)
+
+```bash
+python finetune.py \
+  --model_name_or_path Qwen/Qwen-14B \
+  --data_path train.json \
+  --output_dir ./output/qlora \
+  --use_lora \
+  --q_lora \
+  --lora_r 64 \
+  --lora_alpha 16 \
+  --lora_target_modules c_attn c_proj w1 w2 \
+  --num_train_epochs 3 \
+  --per_device_train_batch_size 1 \
+  --gradient_accumulation_steps 16 \
+  --learning_rate 2e-4 \
+  --gradient_checkpointing \
+  --bf16
+```
+
+### Minimal LoRA (Fastest)
+
+```bash
+python finetune.py \
+  --model_name_or_path Qwen/Qwen-7B-Chat \
+  --data_path train.json \
+  --output_dir ./output/lora-minimal \
+  --use_lora \
+  --lora_r 8 \
+  --lora_alpha 16 \
+  --lora_target_modules c_attn \
+  --num_train_epochs 5 \
+  --per_device_train_batch_size 8 \
+  --learning_rate 1e-4
+```
+
+## LoRA Implementation
+
+The LoRA configuration is applied using PEFT library:
+
+```python
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+if training_args.use_lora:
+    # Determine which modules to save
+    if lora_args.q_lora or is_chat_model:
+        modules_to_save = None
+    else:
+        modules_to_save = ["wte", "lm_head"]  # For base models with new tokens
+    
+    # Create LoRA config
+    lora_config = LoraConfig(
+        r=lora_args.lora_r,
+        lora_alpha=lora_args.lora_alpha,
+        target_modules=lora_args.lora_target_modules,
+        lora_dropout=lora_args.lora_dropout,
+        bias=lora_args.lora_bias,
+        task_type="CAUSAL_LM",
+        modules_to_save=modules_to_save
+    )
+    
+    # Prepare model for QLoRA if needed
+    if lora_args.q_lora:
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=training_args.gradient_checkpointing
+        )
+    
+    # Apply LoRA
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+```
+
+## Trainable Parameters
+
+LoRA dramatically reduces trainable parameters:
+
+```
+Full Fine-tuning (Qwen-7B):
+  - Trainable params: 7,721,000,000
+  - Percentage: 100%
+
+LoRA (r=64, 4 modules):
+  - Trainable params: 83,886,080
+  - Percentage: 1.09%
+
+QLoRA (r=64, 4 modules, 4-bit):
+  - Trainable params: 83,886,080
+  - Percentage: 1.09%
+  - Memory usage: ~25% of full fine-tuning
+```
+
+## Hyperparameter Guidelines
+
+### Task-Based Recommendations
+
+**Instruction Following / Chat:**
+```bash
+--lora_r 64 \
+--lora_alpha 16 \
+--lora_target_modules c_attn c_proj w1 w2
+```
+
+**Domain Adaptation:**
+```bash
+--lora_r 32 \
+--lora_alpha 32 \
+--lora_target_modules c_attn c_proj
+```
+
+**Task-Specific (Classification, etc.):**
+```bash
+--lora_r 16 \
+--lora_alpha 32 \
+--lora_target_modules c_attn
+```
+
+### Memory Constraints
+
+**24GB GPU (e.g., RTX 3090):**
+```bash
+--q_lora \
+--lora_r 64 \
+--per_device_train_batch_size 1 \
+--gradient_accumulation_steps 16 \
+--gradient_checkpointing
+```
+
+**40GB GPU (e.g., A100):**
+```bash
+--use_lora \
+--lora_r 64 \
+--per_device_train_batch_size 4 \
+--gradient_accumulation_steps 4
+```
+
+**80GB GPU (e.g., A100 80GB):**
+```bash
+--use_lora \
+--lora_r 128 \
+--per_device_train_batch_size 8 \
+--gradient_accumulation_steps 2
+```
+
+## Merging LoRA Weights
+
+After training, merge LoRA adapters into base model:
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+# Load base model
+base_model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B",
+    device_map="auto",
+    trust_remote_code=True
+)
+
+# Load and merge LoRA
+model = PeftModel.from_pretrained(base_model, "./output/lora/checkpoint-1000")
+merged_model = model.merge_and_unload()
+
+# Save merged model
+merged_model.save_pretrained("./output/merged-model")
+```

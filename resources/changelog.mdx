@@ -1,0 +1,395 @@
+---
+title: Changelog
+description: Version history and updates for Qwen models
+---
+
+Track the development history and major updates to the Qwen model series.
+
+## 2023.11.30
+
+### Major Release: Qwen-72B and Qwen-1.8B
+
+<Card title="Qwen-72B Series" icon="rocket">
+  **New Models Released:**
+  - Qwen-72B (base model)
+  - Qwen-72B-Chat (chat model)
+
+  **Key Features:**
+  - Trained on 3T tokens
+  - 32K context length support
+  - State-of-the-art performance across benchmarks
+  - Outperforms LLaMA2-70B on all tasks
+  - Surpasses GPT-3.5 on 7 out of 10 benchmarks
+</Card>
+
+<Card title="Qwen-1.8B Series" icon="star">
+  **New Models Released:**
+  - Qwen-1.8B (base model)
+  - Qwen-1.8B-Chat (chat model)
+
+  **Key Features:**
+  - Efficient small model for edge deployment
+  - 32K context length
+  - Competitive performance for its size
+  - Ideal for resource-constrained scenarios
+</Card>
+
+### Enhanced Features
+
+**System Prompt Enhancement:**
+- Strengthened system prompt capabilities for Qwen-72B-Chat
+- Improved system prompt capabilities for Qwen-1.8B-Chat
+- Better instruction following and role-playing
+- See [system prompt examples](https://github.com/QwenLM/Qwen/blob/main/examples/system_prompt.md)
+
+**Hardware Support Expansion:**
+- **Ascend 910** inference support
+- **Hygon DCU** inference support
+- Check `ascend-support` and `dcu-support` branches for details
+
+**Model Availability:**
+- Available on ModelScope and Hugging Face
+- Int4 and Int8 quantized versions included
+
+---
+
+## 2023.10.17
+
+### Int8 Quantization Release
+
+**New Models:**
+- Qwen-7B-Chat-Int8
+- Qwen-14B-Chat-Int8
+
+**Benefits:**
+- Reduced memory footprint compared to BF16
+- Faster inference than BF16
+- Minimal performance degradation
+- Balance between Int4 speed and BF16 quality
+
+---
+
+## 2023.09.25
+
+### Major Release: Qwen-14B
+
+<Card title="Qwen-14B Series" icon="rocket">
+  **New Models Released:**
+  - Qwen-14B (base model)
+  - Qwen-14B-Chat (chat model)
+
+  **Specifications:**
+  - 14 billion parameters
+  - Trained on 3.0T tokens
+  - 8K context length
+  - Superior performance vs similar-sized models
+</Card>
+
+### Companion Projects
+
+**qwen.cpp:**
+- Pure C++ implementation of Qwen
+- Optimized CPU inference
+- tiktoken implementation in C++
+- Repository: [https://github.com/QwenLM/qwen.cpp](https://github.com/QwenLM/qwen.cpp)
+
+**Qwen-Agent:**
+- Agent framework for Qwen models
+- Tool usage and integration capabilities
+- ReAct prompting support
+- Repository: [https://github.com/QwenLM/Qwen-Agent](https://github.com/QwenLM/Qwen-Agent)
+
+### Qwen-7B Updates
+
+<Warning>
+**IMPORTANT:** Qwen-7B has been significantly updated. Please pull the latest version!
+</Warning>
+
+**Improvements:**
+- Increased training tokens: 2.2T → 2.4T
+- Extended context length: 2048 → 8192 tokens
+- Enhanced Chinese knowledge
+- Improved coding capabilities
+- Better overall performance
+
+---
+
+## 2023.09.12
+
+### Fine-tuning Support
+
+**New Capabilities:**
+- Full-parameter fine-tuning
+- LoRA (Low-Rank Adaptation)
+- Q-LoRA (Quantized LoRA)
+
+**Scripts Provided:**
+- `finetune/finetune_ds.sh` - Full-parameter with DeepSpeed
+- `finetune/finetune_lora_single_gpu.sh` - LoRA on single GPU
+- `finetune/finetune_lora_ds.sh` - LoRA with DeepSpeed
+- `finetune/finetune_qlora_single_gpu.sh` - Q-LoRA on single GPU
+- `finetune/finetune_qlora_ds.sh` - Q-LoRA with DeepSpeed
+
+**Features:**
+- DeepSpeed ZeRO integration
+- Custom data format support
+- Mixed precision training (BF16/FP16)
+- Gradient checkpointing
+- Multi-GPU and multi-node support
+
+---
+
+## 2023.08.21
+
+### Int4 Quantization Release
+
+**New Model:**
+- Qwen-7B-Chat-Int4
+
+**Features:**
+- Extremely low memory requirements
+- Improved inference speed vs BF16
+- ~8GB GPU memory for inference
+- Minimal quality loss on benchmarks
+- Based on AutoGPTQ
+
+**Performance:**
+- Speed: ~50 tokens/s (vs ~40 for BF16)
+- Memory: ~8.2GB (vs ~17GB for BF16)
+- Benchmark scores within 1-2% of BF16
+
+---
+
+## 2023.08.03
+
+### Initial Release: Qwen-7B
+
+<Card title="First Public Release" icon="party-popper">
+  **Models Released:**
+  - Qwen-7B (base pretrained model)
+  - Qwen-7B-Chat (chat-aligned model)
+
+  **Platforms:**
+  - ModelScope
+  - Hugging Face
+</Card>
+
+**Base Model (Qwen-7B):**
+- 7 billion parameters
+- Trained on 2.2T tokens
+- 2048 context length
+- Transformer decoder-only architecture
+- Focus on Chinese and English
+
+**Chat Model (Qwen-7B-Chat):**
+- Fine-tuned from Qwen-7B
+- Aligned with human preferences via SFT
+- ChatML format support
+- Tool usage capabilities
+- Code interpreter functionality
+
+**Technical Report:**
+- Published on arXiv: [2309.16609](https://arxiv.org/abs/2309.16609)
+- Detailed methodology and evaluation
+- Comprehensive benchmark results
+
+**Key Features:**
+- Competitive benchmark performance
+- Multilingual tokenizer (151,851 tokens)
+- BPE tokenization with tiktoken
+- Tool usage and ReAct prompting
+- Long-context inference (NTK, LogN)
+- Flash Attention support
+- Multiple deployment options
+
+---
+
+## Model Comparison Timeline
+
+| Date | Model | Parameters | Context | Tokens Trained | Key Features |
+|:-----|:------|:-----------|:--------|:---------------|:-------------|
+| 2023.08.03 | Qwen-7B | 7B | 2K | 2.2T | Initial release |
+| 2023.08.21 | Qwen-7B-Chat-Int4 | 7B | 2K | - | First quantized model |
+| 2023.09.12 | - | - | - | - | Fine-tuning scripts |
+| 2023.09.25 | Qwen-7B (v2) | 7B | 8K | 2.4T | Updated with more data |
+| 2023.09.25 | Qwen-14B | 14B | 8K | 3.0T | Larger model release |
+| 2023.10.17 | Qwen-*B-Chat-Int8 | Various | - | - | Int8 quantization |
+| 2023.11.30 | Qwen-72B | 72B | 32K | 3.0T | Flagship model |
+| 2023.11.30 | Qwen-1.8B | 1.8B | 32K | 2.2T | Efficient small model |
+
+---
+
+## Feature Evolution
+
+### Tokenization
+
+- **2023.08.03:** Initial tiktoken-based tokenizer (151,851 tokens)
+- **2023.10.08:** Added `extra_vocab_file` support for vocabulary expansion
+- **Ongoing:** Injection attack prevention with `allowed_special` and `disallowed_special`
+
+### Context Length
+
+- **2023.08.03:** 2K context (Qwen-7B original)
+- **2023.09.25:** 8K context (Qwen-7B v2, Qwen-14B)
+- **2023.11.30:** 32K context (Qwen-72B, Qwen-1.8B)
+- **Training-free extension:** Up to 16K+ with NTK and LogN
+
+### Quantization
+
+- **2023.08.21:** Int4 quantization (AutoGPTQ)
+- **2023.10.17:** Int8 quantization
+- **KV Cache:** Int8 quantization for attention cache
+- **Maintained:** Minimal performance degradation
+
+### Fine-tuning
+
+- **2023.09.12:** Full-parameter, LoRA, Q-LoRA support
+- **DeepSpeed:** ZeRO 2 and ZeRO 3 integration
+- **Multi-node:** Support for distributed training
+- **Optimizations:** Gradient checkpointing, mixed precision
+
+### Tool Usage
+
+- **2023.08.03:** ReAct prompting support
+- **2023.09.25:** Qwen-Agent framework release
+- **HuggingFace Agent:** Official compatibility
+- **Plugin system:** Extensible tool integration
+
+---
+
+## Benchmark Improvements
+
+### Qwen-7B Evolution
+
+| Benchmark | v1 (2.2T) | v2 (2.4T) | Improvement |
+|:----------|:----------|:----------|:------------|
+| MMLU | 56.7 | 58.2 | +1.5 |
+| C-Eval | 59.6 | 63.5 | +3.9 |
+| GSM8K | 51.6 | 51.7 | +0.1 |
+| HumanEval | 24.4 | 29.9 | +5.5 |
+| MBPP | - | 31.6 | - |
+
+### Model Size Comparison (Latest Versions)
+
+| Model | MMLU | C-Eval | GSM8K | HumanEval |
+|:------|:-----|:-------|:------|:----------|
+| Qwen-1.8B | 45.3 | 56.1 | 32.3 | 15.2 |
+| Qwen-7B | 58.2 | 63.5 | 51.7 | 29.9 |
+| Qwen-14B | 66.3 | 72.1 | 61.3 | 32.3 |
+| Qwen-72B | 77.4 | 83.3 | 78.9 | 35.4 |
+
+---
+
+## Documentation Updates
+
+- **2023.08:** Initial README and technical report
+- **2023.09:** Fine-tuning guides and examples
+- **2023.10:** Tokenization deep-dive documentation
+- **2023.11:** System prompt examples and hardware guides
+- **Ongoing:** Community contributions and translations
+
+---
+
+## Community Contributions
+
+### Third-Party Integrations
+
+- FastChat support
+- Firefly integration
+- LLaMA Efficient Tuning compatibility
+- OpenVINO toolkit support
+- vLLM deployment option
+
+### Translations
+
+- Chinese (中文)
+- Japanese (日本語)
+- French (Français)
+- Spanish (Español)
+
+---
+
+## Upcoming Features
+
+<Note>
+These are planned features and may be subject to change.
+</Note>
+
+- **RLHF:** Reinforcement Learning from Human Feedback
+- **Qwen2:** Next generation models (now available in separate repo)
+- **Multimodal:** Vision and audio capabilities
+- **Extended context:** Further context length improvements
+- **Additional sizes:** More model size options
+
+---
+
+## Version Compatibility
+
+### Recommended Software Versions
+
+| Component | Minimum | Recommended |
+|:----------|:--------|:------------|
+| Python | 3.8 | 3.10+ |
+| PyTorch | 1.12 | 2.0+ |
+| Transformers | 4.32.0 | 4.35.0+ |
+| CUDA | 11.4 | 11.8+ |
+| Flash Attention | 2.0 | 2.3+ |
+
+### Model File Compatibility
+
+<Warning>
+Older model files may not be compatible with newer code. Always use matching versions or update both.
+</Warning>
+
+**Breaking changes:**
+- 2023.09.25: Qwen-7B model update (incompatible with old checkpoints)
+- 2023.11.30: Configuration changes for 32K context models
+
+---
+
+## Deprecation Notices
+
+### Qwen (Legacy Repository)
+
+<Warning>
+The original Qwen repository is no longer actively maintained.
+</Warning>
+
+**Migration path:**
+- For new projects, use [Qwen2](https://github.com/QwenLM/Qwen2)
+- Existing Qwen models remain available and supported
+- Documentation and issue tracking continue for legacy models
+
+### Old Utilities
+
+- **`utils.py` multi-GPU loading:** Deprecated in favor of `device_map="auto"`
+- **Manual merge files:** Use `extra_vocab_file` parameter instead
+
+---
+
+## Release Notes Archive
+
+For detailed release notes and discussion:
+
+- [GitHub Releases](https://github.com/QwenLM/Qwen/releases)
+- [ModelScope Updates](https://modelscope.cn/organization/qwen)
+- [HuggingFace Model Cards](https://huggingface.co/Qwen)
+
+---
+
+## Stay Updated
+
+<CardGroup cols={2}>
+  <Card title="GitHub" icon="github" href="https://github.com/QwenLM/Qwen">
+    Watch the repository for updates
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.gg/CV4E9rpNSD">
+    Join community discussions
+  </Card>
+  <Card title="Twitter/X" icon="x-twitter">
+    Follow @QwenLM for announcements
+  </Card>
+  <Card title="Paper" icon="file-lines" href="https://arxiv.org/abs/2309.16609">
+    Read the technical report
+  </Card>
+</CardGroup>

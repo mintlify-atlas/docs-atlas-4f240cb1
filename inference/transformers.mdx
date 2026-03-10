@@ -1,0 +1,417 @@
+---
+title: 'Using Qwen with Transformers'
+description: 'Complete guide to running Qwen models with the Transformers library'
+---
+
+## Overview
+
+Qwen models are fully compatible with the Hugging Face Transformers library, providing a standardized interface for loading and running inference. This guide covers all aspects of using Qwen with Transformers.
+
+## Installation
+
+Install the required packages:
+
+```bash
+pip install transformers>=4.32.0
+pip install torch>=2.0.0
+pip install accelerate
+```
+
+<Note>
+  Transformers 4.32.0 or above is required for Qwen models. For best performance, use PyTorch 2.0 or above.
+</Note>
+
+## Loading Models from Hugging Face
+
+Qwen models are available on Hugging Face Hub with various configurations:
+
+<Steps>
+  <Step title="Initialize Tokenizer">
+    Load the tokenizer with `trust_remote_code=True`:
+    
+    ```python
+    from transformers import AutoTokenizer
+    
+    tokenizer = AutoTokenizer.from_pretrained(
+        "Qwen/Qwen-7B-Chat", 
+        trust_remote_code=True
+    )
+    ```
+  </Step>
+  
+  <Step title="Load Model">
+    Load the model with automatic device mapping:
+    
+    ```python
+    from transformers import AutoModelForCausalLM
+    
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+  
+  <Step title="Run Inference">
+    Use the chat interface for conversational models:
+    
+    ```python
+    response, history = model.chat(tokenizer, "Hello!", history=None)
+    print(response)
+    ```
+  </Step>
+</Steps>
+
+## Precision Options
+
+Qwen supports multiple precision formats to balance performance and memory usage:
+
+<Tabs>
+  <Tab title="Auto (Recommended)">
+    Automatically selects the best precision based on your device:
+    
+    ```python
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Tab>
+  
+  <Tab title="BF16">
+    Best for training consistency and numerical stability:
+    
+    ```python
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True,
+        bf16=True
+    ).eval()
+    ```
+    
+    <Note>
+      BF16 is recommended if your hardware supports it (Ampere GPUs and newer).
+    </Note>
+  </Tab>
+  
+  <Tab title="FP16">
+    Good balance of performance and compatibility:
+    
+    ```python
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True,
+        fp16=True
+    ).eval()
+    ```
+  </Tab>
+  
+  <Tab title="CPU">
+    For environments without GPU:
+    
+    ```python
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="cpu",
+        trust_remote_code=True
+    ).eval()
+    ```
+    
+    <Warning>
+      CPU inference is significantly slower. Consider using [qwen.cpp](https://github.com/QwenLM/qwen.cpp) for production CPU deployments.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Chat Interface
+
+The `.chat()` method provides a convenient interface for conversational models:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Single turn conversation
+response, history = model.chat(tokenizer, "你好", history=None)
+print(response)
+# Output: 你好！很高兴为你提供帮助。
+
+# Multi-turn conversation
+response, history = model.chat(
+    tokenizer, 
+    "给我讲一个年轻人奋斗创业最终取得成功的故事。", 
+    history=history
+)
+print(response)
+
+response, history = model.chat(
+    tokenizer, 
+    "给这个故事起一个标题", 
+    history=history
+)
+print(response)
+# Output: 《奋斗创业：一个年轻人的成功之路》
+```
+
+### History Format
+
+The history is a list of tuples containing (query, response) pairs:
+
+```python
+# Example history structure
+history = [
+    ("你好", "你好！很高兴为你提供帮助。"),
+    ("给我讲一个故事", "这是一个关于...的故事")
+]
+
+# You can pass existing history
+response, history = model.chat(tokenizer, "继续", history=history)
+```
+
+## Generation Parameters
+
+Customize text generation with `GenerationConfig`:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import GenerationConfig
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Create custom generation config
+generation_config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+
+# Customize parameters
+generation_config.top_p = 0.8
+generation_config.temperature = 0.7
+generation_config.top_k = 20
+generation_config.max_new_tokens = 512
+generation_config.repetition_penalty = 1.1
+
+# Use in inference
+response, history = model.chat(
+    tokenizer,
+    "Write a creative story",
+    history=None,
+    generation_config=generation_config
+)
+```
+
+### Common Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_new_tokens` | 512 | Maximum number of tokens to generate |
+| `temperature` | 1.0 | Controls randomness (lower = more deterministic) |
+| `top_p` | 0.8 | Nucleus sampling threshold |
+| `top_k` | 0 | Top-k sampling (0 = disabled) |
+| `repetition_penalty` | 1.0 | Penalty for repeating tokens |
+
+## Base Model Usage
+
+For non-chat models, use the standard `.generate()` method:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Prepare input
+prompt = "蒙古国的首都是乌兰巴托（Ulaanbaatar）\n冰岛的首都是雷克雅未克（Reykjavik）\n埃塞俄比亚的首都是"
+inputs = tokenizer(prompt, return_tensors='pt')
+inputs = inputs.to(model.device)
+
+# Generate
+output = model.generate(**inputs, max_new_tokens=50)
+result = tokenizer.decode(output.cpu()[0], skip_special_tokens=True)
+print(result)
+```
+
+## Quantized Models
+
+Load pre-quantized models for reduced memory usage:
+
+<CodeGroup>
+
+```python Int4 (GPTQ)
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+response, history = model.chat(tokenizer, "Hi", history=None)
+print(response)
+```
+
+```python Int8
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int8", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int8",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+response, history = model.chat(tokenizer, "Hi", history=None)
+print(response)
+```
+
+</CodeGroup>
+
+<Note>
+  Quantized models provide significant memory savings with minimal performance degradation. See the quantization guide for more details.
+</Note>
+
+## KV Cache Quantization
+
+Enable KV cache quantization for higher throughput:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    use_cache_quantization=True,
+    use_cache_kernel=True,
+    use_flash_attn=False  # Cannot use with cache quantization
+).eval()
+
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+<Warning>
+  KV cache quantization and flash attention cannot be enabled simultaneously. If both are set to `True`, flash attention will be automatically disabled.
+</Warning>
+
+## Device Mapping
+
+Control which devices the model uses:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+
+# Automatic device mapping (recommended)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Specific GPU
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cuda:0",
+    trust_remote_code=True
+).eval()
+
+# CPU only
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cpu",
+    trust_remote_code=True
+).eval()
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Enable Flash Attention">
+    Install flash-attention for 30-40% speedup:
+    
+    ```bash
+    git clone https://github.com/Dao-AILab/flash-attention
+    cd flash-attention && pip install .
+    ```
+    
+    No code changes needed - Qwen automatically detects and uses flash attention.
+  </Accordion>
+  
+  <Accordion title="Use BF16 Precision">
+    On supported hardware, BF16 provides the best balance:
+    
+    ```python
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True,
+        bf16=True
+    ).eval()
+    ```
+  </Accordion>
+  
+  <Accordion title="Optimize Generation Config">
+    Adjust generation parameters for your use case:
+    
+    ```python
+    # Faster, more focused generation
+    config.temperature = 0.5
+    config.top_p = 0.7
+    config.max_new_tokens = 256
+    
+    # More creative, diverse generation
+    config.temperature = 1.0
+    config.top_p = 0.95
+    config.max_new_tokens = 1024
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="ModelScope Integration" icon="cloud" href="/inference/modelscope">
+    Use Qwen with ModelScope platform
+  </Card>
+  <Card title="Batch Inference" icon="layer-group" href="/inference/batch-inference">
+    Process multiple requests efficiently
+  </Card>
+  <Card title="Streaming" icon="stream" href="/inference/streaming">
+    Stream tokens as they're generated
+  </Card>
+  <Card title="Multi-GPU" icon="server" href="/inference/multi-gpu">
+    Scale across multiple GPUs
+  </Card>
+</CardGroup>

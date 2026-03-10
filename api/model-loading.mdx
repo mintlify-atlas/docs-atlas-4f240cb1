@@ -1,0 +1,206 @@
+---
+title: Model Loading API
+description: Load and initialize Qwen models for inference and fine-tuning
+---
+
+## Overview
+
+The Qwen model loading API provides methods to load pre-trained models and tokenizers from Hugging Face or local paths. All models use the standard Transformers library interfaces.
+
+## Load Model
+
+Load a Qwen model for causal language modeling:
+
+```python
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    resume_download=True
+).eval()
+```
+
+### Parameters
+
+<ParamField path="model_name_or_path" type="str" required>
+  Model checkpoint name (e.g., "Qwen/Qwen-7B-Chat") or local path to model directory
+</ParamField>
+
+<ParamField path="device_map" type="str | dict" default="None">
+  Device allocation strategy:
+  - `"auto"`: Automatically distribute model across available devices
+  - `"cpu"`: Load model to CPU only
+  - `"cuda"`: Load model to GPU
+  - Dictionary mapping layers to specific devices
+</ParamField>
+
+<ParamField path="trust_remote_code" type="bool" default="False">
+  Allow execution of custom modeling code from the model repository. Required for Qwen models.
+</ParamField>
+
+<ParamField path="resume_download" type="bool" default="False">
+  Resume incomplete downloads from Hugging Face Hub
+</ParamField>
+
+<ParamField path="torch_dtype" type="torch.dtype" default="None">
+  Data type for model weights (e.g., `torch.float16`, `torch.bfloat16`)
+</ParamField>
+
+<ParamField path="low_cpu_mem_usage" type="bool" default="False">
+  Reduce CPU memory usage during model loading (useful for large models)
+</ParamField>
+
+<ParamField path="quantization_config" type="GPTQConfig | BitsAndBytesConfig" default="None">
+  Configuration for model quantization (4-bit, 8-bit)
+</ParamField>
+
+### Returns
+
+<ResponseField name="model" type="AutoModelForCausalLM">
+  Loaded Qwen model ready for inference or fine-tuning
+</ResponseField>
+
+## Load Tokenizer
+
+Load the tokenizer associated with a Qwen model:
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    resume_download=True
+)
+```
+
+### Parameters
+
+<ParamField path="pretrained_model_name_or_path" type="str" required>
+  Model checkpoint name or path. Should match the model being loaded.
+</ParamField>
+
+<ParamField path="trust_remote_code" type="bool" default="False">
+  Allow execution of custom tokenizer code. Required for Qwen models.
+</ParamField>
+
+<ParamField path="resume_download" type="bool" default="False">
+  Resume incomplete downloads from Hugging Face Hub
+</ParamField>
+
+<ParamField path="padding_side" type="str" default="right">
+  Side on which padding tokens are added:
+  - `"right"`: Pad on the right (recommended for training)
+  - `"left"`: Pad on the left (recommended for generation)
+</ParamField>
+
+<ParamField path="use_fast" type="bool" default="True">
+  Use fast tokenizer implementation if available
+</ParamField>
+
+<ParamField path="model_max_length" type="int" default="None">
+  Maximum sequence length for tokenization
+</ParamField>
+
+### Returns
+
+<ResponseField name="tokenizer" type="AutoTokenizer">
+  Loaded tokenizer with special tokens configured for Qwen
+</ResponseField>
+
+## Load Generation Config
+
+Load generation configuration from a checkpoint:
+
+```python
+from transformers.generation import GenerationConfig
+
+config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    resume_download=True
+)
+```
+
+### Parameters
+
+<ParamField path="pretrained_model_name" type="str" required>
+  Model checkpoint name or path containing `generation_config.json`
+</ParamField>
+
+<ParamField path="trust_remote_code" type="bool" default="False">
+  Allow execution of custom configuration code
+</ParamField>
+
+<ParamField path="resume_download" type="bool" default="False">
+  Resume incomplete downloads
+</ParamField>
+
+### Returns
+
+<ResponseField name="config" type="GenerationConfig">
+  Generation configuration with model-specific defaults
+</ResponseField>
+
+## Complete Loading Example
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import GenerationConfig
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    resume_download=True
+)
+
+# Load model
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    resume_download=True
+).eval()
+
+# Load generation config
+generation_config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True,
+    resume_download=True
+)
+
+# Assign to model
+model.generation_config = generation_config
+```
+
+## CPU-Only Loading
+
+For environments without GPU:
+
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cpu",
+    trust_remote_code=True,
+    resume_download=True
+).eval()
+```
+
+## Quantized Loading
+
+Load with 4-bit quantization for reduced memory usage:
+
+```python
+from transformers import GPTQConfig
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    quantization_config=GPTQConfig(bits=4, disable_exllama=True)
+).eval()
+```

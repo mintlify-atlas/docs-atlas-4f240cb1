@@ -1,0 +1,337 @@
+---
+title: Training Arguments
+description: Configure fine-tuning parameters for Qwen models
+---
+
+## Overview
+
+Qwen fine-tuning uses Hugging Face Transformers' `TrainingArguments` with additional custom arguments for model loading, data processing, and LoRA training.
+
+## Argument Classes
+
+Four argument classes configure different aspects of training:
+
+```python
+from transformers import HfArgumentParser
+from dataclasses import dataclass, field
+
+parser = HfArgumentParser((
+    ModelArguments,
+    DataArguments,
+    TrainingArguments,
+    LoraArguments
+))
+
+model_args, data_args, training_args, lora_args = parser.parse_args_into_dataclasses()
+```
+
+## ModelArguments
+
+Specify which model to fine-tune.
+
+<ParamField path="model_name_or_path" type="str" default="Qwen/Qwen-7B">
+  Hugging Face model ID or local path to model checkpoint:
+  ```bash
+  --model_name_or_path Qwen/Qwen-7B-Chat
+  ```
+</ParamField>
+
+## DataArguments
+
+Configure training and evaluation data.
+
+<ParamField path="data_path" type="str" required>
+  Path to training data JSON file:
+  ```bash
+  --data_path ./data/train.json
+  ```
+</ParamField>
+
+<ParamField path="eval_data_path" type="str" default="None">
+  Path to evaluation data JSON file (optional):
+  ```bash
+  --eval_data_path ./data/eval.json
+  ```
+</ParamField>
+
+<ParamField path="lazy_preprocess" type="bool" default="False">
+  Use lazy data loading to reduce memory usage:
+  ```bash
+  --lazy_preprocess
+  ```
+  Enable for very large datasets that don't fit in memory.
+</ParamField>
+
+## TrainingArguments
+
+Extends standard Hugging Face `TrainingArguments` with Qwen-specific options.
+
+### Core Training Parameters
+
+<ParamField path="output_dir" type="str" required>
+  Directory for saving model checkpoints and outputs:
+  ```bash
+  --output_dir ./output/qwen-finetuned
+  ```
+</ParamField>
+
+<ParamField path="num_train_epochs" type="int" default="3">
+  Number of training epochs:
+  ```bash
+  --num_train_epochs 5
+  ```
+</ParamField>
+
+<ParamField path="per_device_train_batch_size" type="int" default="8">
+  Batch size per GPU during training:
+  ```bash
+  --per_device_train_batch_size 4
+  ```
+</ParamField>
+
+<ParamField path="per_device_eval_batch_size" type="int" default="8">
+  Batch size per GPU during evaluation:
+  ```bash
+  --per_device_eval_batch_size 8
+  ```
+</ParamField>
+
+<ParamField path="gradient_accumulation_steps" type="int" default="1">
+  Number of steps to accumulate gradients before updating:
+  ```bash
+  --gradient_accumulation_steps 4
+  ```
+  Effective batch size = batch_size × gradient_accumulation_steps × num_gpus
+</ParamField>
+
+### Learning Rate
+
+<ParamField path="learning_rate" type="float" default="5e-5">
+  Initial learning rate:
+  ```bash
+  --learning_rate 1e-4
+  ```
+</ParamField>
+
+<ParamField path="lr_scheduler_type" type="str" default="linear">
+  Learning rate schedule:
+  - `linear`: Linear decay
+  - `cosine`: Cosine annealing
+  - `constant`: No decay
+  ```bash
+  --lr_scheduler_type cosine
+  ```
+</ParamField>
+
+<ParamField path="warmup_steps" type="int" default="0">
+  Number of warmup steps:
+  ```bash
+  --warmup_steps 100
+  ```
+</ParamField>
+
+<ParamField path="warmup_ratio" type="float" default="0.0">
+  Warmup ratio (alternative to warmup_steps):
+  ```bash
+  --warmup_ratio 0.1
+  ```
+</ParamField>
+
+### Optimization
+
+<ParamField path="optim" type="str" default="adamw_torch">
+  Optimizer to use:
+  - `adamw_torch`: PyTorch AdamW
+  - `adamw_hf`: Hugging Face AdamW
+  - `adafactor`: Adafactor (memory efficient)
+  ```bash
+  --optim adamw_torch
+  ```
+</ParamField>
+
+<ParamField path="weight_decay" type="float" default="0.0">
+  Weight decay coefficient:
+  ```bash
+  --weight_decay 0.01
+  ```
+</ParamField>
+
+<ParamField path="adam_beta1" type="float" default="0.9">
+  Adam beta1 parameter
+</ParamField>
+
+<ParamField path="adam_beta2" type="float" default="0.999">
+  Adam beta2 parameter
+</ParamField>
+
+<ParamField path="max_grad_norm" type="float" default="1.0">
+  Maximum gradient norm for clipping:
+  ```bash
+  --max_grad_norm 1.0
+  ```
+</ParamField>
+
+### Model Configuration
+
+<ParamField path="model_max_length" type="int" default="8192">
+  Maximum sequence length (input + output):
+  ```bash
+  --model_max_length 4096
+  ```
+</ParamField>
+
+<ParamField path="use_lora" type="bool" default="False">
+  Enable LoRA fine-tuning:
+  ```bash
+  --use_lora
+  ```
+</ParamField>
+
+<ParamField path="cache_dir" type="str" default="None">
+  Directory for caching downloaded models:
+  ```bash
+  --cache_dir ./cache
+  ```
+</ParamField>
+
+### Checkpointing
+
+<ParamField path="save_strategy" type="str" default="steps">
+  When to save checkpoints:
+  - `steps`: Every `save_steps`
+  - `epoch`: Every epoch
+  - `no`: No saving
+  ```bash
+  --save_strategy steps
+  ```
+</ParamField>
+
+<ParamField path="save_steps" type="int" default="500">
+  Save checkpoint every N steps:
+  ```bash
+  --save_steps 200
+  ```
+</ParamField>
+
+<ParamField path="save_total_limit" type="int" default="None">
+  Maximum number of checkpoints to keep:
+  ```bash
+  --save_total_limit 3
+  ```
+</ParamField>
+
+### Evaluation
+
+<ParamField path="evaluation_strategy" type="str" default="no">
+  When to run evaluation:
+  - `steps`: Every `eval_steps`
+  - `epoch`: Every epoch
+  - `no`: No evaluation
+  ```bash
+  --evaluation_strategy steps
+  ```
+</ParamField>
+
+<ParamField path="eval_steps" type="int" default="None">
+  Evaluate every N steps:
+  ```bash
+  --eval_steps 100
+  ```
+</ParamField>
+
+### Logging
+
+<ParamField path="logging_steps" type="int" default="500">
+  Log metrics every N steps:
+  ```bash
+  --logging_steps 10
+  ```
+</ParamField>
+
+<ParamField path="logging_dir" type="str" default="None">
+  TensorBoard log directory:
+  ```bash
+  --logging_dir ./logs
+  ```
+</ParamField>
+
+<ParamField path="report_to" type="str | list" default="all">
+  Reporting integrations:
+  - `tensorboard`
+  - `wandb`
+  - `none`
+  ```bash
+  --report_to tensorboard
+  ```
+</ParamField>
+
+### Performance
+
+<ParamField path="fp16" type="bool" default="False">
+  Use FP16 mixed precision:
+  ```bash
+  --fp16
+  ```
+</ParamField>
+
+<ParamField path="bf16" type="bool" default="False">
+  Use BF16 mixed precision (recommended for modern GPUs):
+  ```bash
+  --bf16
+  ```
+</ParamField>
+
+<ParamField path="gradient_checkpointing" type="bool" default="False">
+  Enable gradient checkpointing to reduce memory:
+  ```bash
+  --gradient_checkpointing
+  ```
+</ParamField>
+
+<ParamField path="deepspeed" type="str" default="None">
+  Path to DeepSpeed config file:
+  ```bash
+  --deepspeed ./ds_config.json
+  ```
+</ParamField>
+
+### Distributed Training
+
+<ParamField path="local_rank" type="int" default="-1">
+  Local rank for distributed training (set automatically)
+</ParamField>
+
+<ParamField path="ddp_find_unused_parameters" type="bool" default="False">
+  Find unused parameters in DDP:
+  ```bash
+  --ddp_find_unused_parameters
+  ```
+</ParamField>
+
+## Complete Example
+
+```bash
+python finetune.py \
+  --model_name_or_path Qwen/Qwen-7B \
+  --data_path ./data/train.json \
+  --eval_data_path ./data/eval.json \
+  --output_dir ./output/qwen-finetuned \
+  --num_train_epochs 3 \
+  --per_device_train_batch_size 2 \
+  --per_device_eval_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --evaluation_strategy steps \
+  --eval_steps 100 \
+  --save_strategy steps \
+  --save_steps 200 \
+  --save_total_limit 3 \
+  --learning_rate 1e-4 \
+  --weight_decay 0.01 \
+  --warmup_ratio 0.03 \
+  --lr_scheduler_type cosine \
+  --logging_steps 10 \
+  --model_max_length 2048 \
+  --gradient_checkpointing \
+  --bf16 \
+  --deepspeed ds_config.json
+```

@@ -1,0 +1,175 @@
+---
+title: Deployment Overview
+description: Comprehensive guide to deploying Qwen models in production environments
+---
+
+Qwen models can be deployed in various ways depending on your requirements for performance, scalability, and ease of use. This guide covers all available deployment options.
+
+## Deployment Options
+
+<CardGroup cols={2}>
+  <Card title="OpenAI-Compatible API" icon="code" href="/deployment/openai-api">
+    Deploy a production-ready API server compatible with OpenAI's format
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Containerized deployment with pre-built Docker images
+  </Card>
+  <Card title="vLLM" icon="rocket" href="/deployment/vllm">
+    High-performance inference with vLLM for production workloads
+  </Card>
+  <Card title="FastChat" icon="comments" href="/deployment/fastchat">
+    Full-featured deployment with web UI and API server
+  </Card>
+</CardGroup>
+
+## Choosing a Deployment Method
+
+Select the deployment method that best fits your use case:
+
+### Quick Testing & Development
+
+For rapid prototyping and local development:
+- **OpenAI-Compatible API**: Simple Python script deployment
+- **Docker**: Pre-configured environment without manual setup
+
+### Production Deployments
+
+For production environments requiring high performance:
+- **vLLM**: Best for high-throughput inference with multiple concurrent requests
+- **FastChat + vLLM**: Complete solution with web UI and optimized inference
+
+### Scalability Considerations
+
+<AccordionGroup>
+  <Accordion title="Single GPU Deployments">
+    All deployment methods support single GPU setups:
+    - **Qwen-1.8B**: 4-6GB VRAM
+    - **Qwen-7B**: 17-20GB VRAM (RTX 3090/4090)
+    - **Qwen-14B**: 30-35GB VRAM (A100 40GB)
+    - **Qwen-72B**: 145GB+ VRAM (requires multi-GPU)
+  </Accordion>
+
+  <Accordion title="Multi-GPU Deployments">
+    For larger models or higher throughput:
+    - **vLLM Tensor Parallelism**: Split model across multiple GPUs
+    - **Pipeline Parallelism**: Sequential processing across GPUs
+    - Recommended for Qwen-72B and high-concurrency scenarios
+  </Accordion>
+
+  <Accordion title="Quantized Models">
+    Reduce memory requirements with minimal quality loss:
+    - **Int8**: ~40% memory reduction
+    - **Int4**: ~70% memory reduction
+    - Supported by all deployment methods
+  </Accordion>
+</AccordionGroup>
+
+## Requirements
+
+### System Requirements
+
+<CodeGroup>
+```bash Python
+python >= 3.8
+pytorch >= 1.12 (2.0+ recommended)
+transformers >= 4.32.0
+CUDA >= 11.4 (for GPU deployments)
+```
+
+```bash Docker
+Docker >= 20.10
+nvidia-docker2 (for GPU support)
+NVIDIA Driver >= 450.80.02
+```
+</CodeGroup>
+
+### Hardware Requirements
+
+| Model Size | Minimum GPU Memory | Recommended GPU | Quantization Options |
+|------------|-------------------|-----------------|----------------------|
+| Qwen-1.8B  | 4GB               | GTX 1080 Ti     | Int8, Int4           |
+| Qwen-7B    | 16GB              | RTX 3090        | Int8, Int4           |
+| Qwen-14B   | 30GB              | A100 40GB       | Int8, Int4           |
+| Qwen-72B   | 145GB             | 2x A100 80GB    | Int8, Int4           |
+
+## Performance Comparison
+
+Benchmark on A100 GPU with Qwen-7B-Chat (generating 2048 tokens):
+
+| Deployment Method | Throughput (tokens/s) | Memory Usage | Setup Complexity |
+|-------------------|----------------------|--------------|------------------|
+| Native PyTorch    | 40.93                | 16.99GB      | Low              |
+| OpenAI API        | 40.93                | 16.99GB      | Low              |
+| Docker            | 40.93                | 16.99GB      | Very Low         |
+| vLLM              | 60-80                | 17.5GB       | Medium           |
+| FastChat + vLLM   | 60-80                | 17.5GB       | Medium           |
+
+<Note>
+vLLM provides significant performance improvements through optimized CUDA kernels, continuous batching, and PagedAttention.
+</Note>
+
+## Security Considerations
+
+<Warning>
+When deploying in production, always implement proper security measures:
+- Use authentication (API keys, basic auth, OAuth)
+- Enable HTTPS/TLS encryption
+- Implement rate limiting
+- Monitor and log API usage
+- Keep dependencies updated
+</Warning>
+
+## Next Steps
+
+<Steps>
+  <Step title="Choose Your Deployment Method">
+    Review the options above and select based on your requirements
+  </Step>
+  
+  <Step title="Follow the Setup Guide">
+    Navigate to the specific deployment guide for detailed instructions
+  </Step>
+  
+  <Step title="Configure for Production">
+    Review [Production Best Practices](/deployment/production) for optimization
+  </Step>
+  
+  <Step title="Monitor and Scale">
+    Set up monitoring and scale based on your traffic patterns
+  </Step>
+</Steps>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Out of Memory Errors">
+    Solutions:
+    - Use quantized models (Int4/Int8)
+    - Enable KV cache quantization
+    - Reduce `max_model_len` parameter
+    - Use multi-GPU deployment
+  </Accordion>
+
+  <Accordion title="Slow Inference Speed">
+    Solutions:
+    - Install Flash Attention 2
+    - Use vLLM for production workloads
+    - Enable tensor parallelism for multi-GPU
+    - Use bfloat16 instead of float32
+  </Accordion>
+
+  <Accordion title="Model Loading Failures">
+    Solutions:
+    - Ensure `trust_remote_code=True` is set
+    - Verify checkpoint path is correct
+    - Check CUDA and PyTorch compatibility
+    - Update transformers library
+  </Accordion>
+</AccordionGroup>
+
+## Additional Resources
+
+- [Production Best Practices](/deployment/production)
+- [Performance Optimization Guide](/performance/optimization)
+- [Troubleshooting Guide](/troubleshooting)
+- [API Reference](/api-reference)

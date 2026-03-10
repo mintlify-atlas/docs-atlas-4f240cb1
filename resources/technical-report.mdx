@@ -1,0 +1,326 @@
+---
+title: Technical Report
+description: Technical overview and methodology for Qwen large language models
+---
+
+Qwen (abbr. Tongyi Qianwen) is a series of large pretrained language models designed as the foundation of AI services. This technical overview summarizes the pretraining and fine-tuning methodology for Qwen models.
+
+<Note>
+The complete technical report is available at [https://arxiv.org/abs/2309.16609](https://arxiv.org/abs/2309.16609)
+</Note>
+
+## Model Series
+
+We release pretrained and human-aligned language models in multiple sizes:
+
+- **Qwen-1.8B / Qwen-1.8B-Chat** - 1.8 billion parameters
+- **Qwen-7B / Qwen-7B-Chat** - 7 billion parameters
+- **Qwen-14B / Qwen-14B-Chat** - 14 billion parameters
+- **Qwen-72B / Qwen-72B-Chat** - 72 billion parameters
+
+Each size includes:
+- Base pretrained models (Qwen-*B) for general language modeling
+- Chat models (Qwen-*B-Chat) aligned with human intent through supervised fine-tuning
+
+## Pretraining
+
+### Architecture
+
+Qwen is built with a transformer-based decoder-only architecture similar to the LLaMA series, with the following key modifications:
+
+1. **Untied embedding** - Separate input and output embeddings
+2. **Rotary positional embedding (RoPE)** - Efficient position encoding
+3. **No biases** - Except for QKV projections in attention
+4. **RMSNorm** - Instead of LayerNorm for normalization
+5. **SwiGLU activation** - Instead of ReLU
+6. **Flash Attention** - For accelerated training and inference
+
+**Qwen-7B Specifications:**
+- 32 transformer layers
+- 4096 embedding dimensions
+- 32 attention heads
+- Context length: 2048 tokens (expandable to 8192+ with training-free methods)
+
+### Training Data
+
+Qwen models are pretrained on over **2.2-3.0 trillion tokens** of multilingual data:
+
+**Data Sources:**
+- Web documents from publicly available sources
+- Code files
+- Multilingual content with focus on English and Chinese
+- Mathematical reasoning data from gsm8k-ScRel
+
+**Data Processing:**
+- Ensemble filtering to exclude low-quality and NSFW content
+- Global fuzzy deduplication
+- Mix optimization through extensive ablation experiments
+
+### Tokenization
+
+Qwen uses a custom tokenizer with **151,851 tokens** (151,643 regular + 208 control tokens):
+
+- Built on BPE tokenization over UTF-8 bytes
+- Uses the `tiktoken` library
+- Optimized for Chinese, English, and code
+- Multilingual-friendly without vocabulary expansion
+- Numbers segmented by single digits
+
+**Tokenization Efficiency:**
+While ensuring efficient encoding of Chinese, English, and code, Qwen achieves high compression rates for many languages including Thai, Hebrew, Arabic, Korean, Vietnamese, Japanese, Turkish, Indonesian, Polish, Russian, Dutch, Portuguese, Italian, German, Spanish, and French.
+
+### Training Details
+
+**Optimizer:** AdamW
+- β₁ = 0.9
+- β₂ = 0.95
+- ε = 10⁻⁶
+
+**Batch Configuration:**
+- Sequence length: 2048
+- Batch size: 2048
+- ~4 million tokens per optimization step
+
+**Learning Rate Schedule:**
+- Cosine schedule with warm-up
+- Warm-up steps: 2000
+- Peak learning rate: 3 × 10⁻⁴
+- Minimum learning rate: 10% of peak
+
+**Regularization:**
+- Weight decay: 0.1
+- Gradient clipping: 1.0
+- Mixed precision training with bfloat16
+
+## Fine-tuning
+
+Qwen-Chat models embody our practice in alignment with human intents, internalized safety, and intelligent agent capabilities.
+
+### Alignment Data
+
+The fine-tuning data includes:
+
+**Instruction Data:**
+- Writing and creative content
+- Question answering
+- Brainstorming and planning
+- Content understanding and summarization
+- Natural language processing tasks
+- Code generation and analysis
+
+**Safety Data:**
+- Prevention of harmful content generation
+- Inappropriate content filtering
+- Substantial annotation efforts for safety
+
+**Service Data:**
+- Tool usage patterns
+- External system integration
+- Parseable conversation patterns for API calls
+
+### Data Formatting
+
+Conversations are formatted using **ChatML** (Chat Markup Language):
+
+```
+<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Hello!<|im_end|>
+<|im_start|>assistant
+Hi! How can I help you today?<|im_end|>
+```
+
+**Roles:**
+- `system` - System instructions and context
+- `user` - User messages
+- `assistant` - Model responses
+
+### Training Configuration
+
+**Objective:** Causal language modeling (excluding user turn tokens)
+
+**Optimizer:** AdamW
+- β₁ = 0.9
+- β₂ = 0.95
+- ε = 10⁻⁶
+
+**Training Setup:**
+- Sequence length: 2048
+- Batch size: 128
+- Training steps: 4000
+- Warm-up steps: 1430
+- Peak learning rate: 1 × 10⁻⁵
+
+**Regularization:**
+- Weight decay: 0.1
+- Dropout: 0.1
+- Gradient clipping: 1.0
+
+## Model Capabilities
+
+### Strong Base Performance
+
+Qwen models achieve competitive or superior performance compared to similar-sized models across:
+
+- **Natural Language Understanding**: MMLU, C-Eval, CMMLU
+- **Mathematical Reasoning**: GSM8K, MATH
+- **Code Generation**: HumanEval, MBPP
+- **General Reasoning**: BBH
+- **Translation**: WMT22
+
+### Chat Model Features
+
+**Conversational AI:**
+- Multi-turn dialogue with context awareness
+- Content creation and brainstorming
+- Information extraction and summarization
+- Translation capabilities
+
+**Tool Usage:**
+- ReAct prompting support
+- Plugin/API integration
+- External system coordination
+- HuggingFace Agent compatibility
+
+**Code Capabilities:**
+- Code generation and completion
+- Code understanding and analysis
+- Debugging assistance
+- Multiple programming languages
+
+### Long Context Inference
+
+Qwen supports training-free context extension from 2048 to 8192+ tokens through:
+
+- **NTK-aware interpolation** (dynamic_ntk)
+- **LogN attention scaling**
+- **Local window attention**
+
+These techniques maintain low perplexity even at extended context lengths without additional training.
+
+## Model Variants
+
+### Quantized Models
+
+We provide Int4 and Int8 quantized models using AutoGPTQ:
+
+- Near-lossless performance
+- Reduced memory footprint
+- Improved inference speed
+- Available for all model sizes
+
+**Benefits:**
+- Qwen-7B-Chat-Int4: ~8.2GB memory (vs 17GB BF16)
+- Qwen-72B-Chat-Int4: ~49GB memory (vs 145GB BF16)
+
+### System Prompt Enhancement
+
+Qwen-72B-Chat and Qwen-1.8B-Chat feature enhanced system prompt capabilities for better instruction following and role-playing.
+
+## Technical Innovations
+
+### Tokenizer Design
+
+Unlike tokenizers based on Unicode codepoints with UTF-8 fallback, Qwen operates directly on UTF-8 byte sequences:
+
+- Efficient encoding across languages
+- No unknown tokens
+- Vocabulary expansion support
+- Injection attack prevention
+
+### KV Cache Quantization
+
+Optional Int8 quantization of attention KV cache:
+
+- Higher sample throughput
+- Reduced memory for long sequences
+- Larger batch sizes
+- Minimal performance degradation
+
+### Flash Attention Integration
+
+Native Flash Attention 2 support provides:
+
+- Faster training and inference
+- Lower memory consumption
+- Improved batch processing efficiency
+
+## Training Infrastructure
+
+Qwen models are trained on:
+
+- NVIDIA A100 GPUs
+- PyTorch 2.0+
+- DeepSpeed for distributed training
+- Mixed precision (bfloat16)
+- CUDA 11.4+
+
+## Deployment Options
+
+Multiple deployment configurations supported:
+
+- **Single GPU**: BF16/FP16/Int8/Int4
+- **Multi-GPU**: Native pipeline parallelism or vLLM
+- **CPU**: Direct inference or qwen.cpp
+- **Cloud API**: DashScope service
+- **Edge Devices**: Quantized models with reduced requirements
+
+## Safety and Alignment
+
+### Safety Measures
+
+- Security-oriented training data
+- NSFW content filtering
+- Harmful content prevention
+- Extensive red teaming
+
+### Responsible Development
+
+<Warning>
+Developers and stakeholders should:
+- Perform their own safety evaluations
+- Implement appropriate security measures
+- Comply with local governance and regulations
+- Conduct red teaming before deployment
+</Warning>
+
+## Model Release Philosophy
+
+Our goal is to enable the community to:
+
+- Analyze and improve model safety
+- Understand quantization and fine-tuning techniques
+- Explore training-free long-context inference
+- Build service-oriented applications with tool usage
+- Establish responsible LLM development practices
+
+## Future Directions
+
+Ongoing research and development includes:
+
+- RLHF (Reinforcement Learning from Human Feedback)
+- Extended context lengths
+- Multimodal capabilities
+- Improved tool usage and agent behaviors
+- Enhanced safety and alignment techniques
+
+## Citation
+
+If you use Qwen models in your research, please cite:
+
+```bibtex
+@article{qwen2023,
+  title={Qwen Technical Report},
+  author={Qwen Team},
+  journal={arXiv preprint arXiv:2309.16609},
+  year={2023}
+}
+```
+
+## Additional Resources
+
+- [Full Technical Report](https://arxiv.org/abs/2309.16609)
+- [GitHub Repository](https://github.com/QwenLM/Qwen)
+- [HuggingFace Models](https://huggingface.co/Qwen)
+- [ModelScope Models](https://modelscope.cn/organization/qwen)

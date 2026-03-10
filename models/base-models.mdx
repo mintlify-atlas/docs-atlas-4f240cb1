@@ -1,0 +1,368 @@
+---
+title: 'Base Models'
+description: 'Documentation for Qwen base pretrained models'
+---
+
+# Base Pretrained Models
+
+Qwen base models are pretrained language models that serve as the foundation for various downstream tasks. These models have been trained on massive amounts of multilingual text data and are ideal for further fine-tuning.
+
+## Model Architecture
+
+Qwen models use a transformer-based decoder-only architecture with several optimizations:
+
+### Core Components
+
+- **Architecture Type**: Decoder-only Transformer (similar to LLaMA)
+- **Positional Encoding**: Rotary Position Embedding (RoPE)
+- **Activation Function**: SwiGLU (instead of ReLU)
+- **Normalization**: RMSNorm (instead of LayerNorm)
+- **Attention Mechanism**: Flash Attention 2 support
+- **Embeddings**: Untied input and output embeddings
+- **Bias**: No biases except for QKV in attention
+
+### Technical Specifications
+
+<Tabs>
+  <Tab title="Qwen-7B">
+    **Model Configuration**
+    - **Parameters**: 7 billion
+    - **Layers**: 32
+    - **Hidden Dimension**: 4096
+    - **Attention Heads**: 32
+    - **Vocabulary Size**: 151,851 tokens
+    - **Context Length**: 32K (original: 2048, extended: 8192+)
+    - **Training Tokens**: 2.4 trillion
+    
+    **Training Details**
+    - Optimizer: AdamW (β₁=0.9, β₂=0.95, ε=10⁻⁶)
+    - Batch Size: 2048 sequences (4M+ tokens per step)
+    - Learning Rate: Peak 3×10⁻⁴, cosine schedule
+    - Warm-up Steps: 2000
+    - Weight Decay: 0.1
+    - Gradient Clipping: 1.0
+    - Precision: BFloat16 mixed precision
+  </Tab>
+  
+  <Tab title="Qwen-1.8B">
+    **Model Configuration**
+    - **Parameters**: 1.8 billion
+    - **Context Length**: 32K
+    - **Training Tokens**: 2.2 trillion
+    - **System Prompt Support**: Enhanced
+    - **Release Date**: November 30, 2023
+    
+    **Minimum Hardware Requirements**
+    - BF16: 4.23GB GPU memory
+    - Int8: 3.48GB GPU memory
+    - Int4: 2.91GB GPU memory
+  </Tab>
+  
+  <Tab title="Qwen-14B">
+    **Model Configuration**
+    - **Parameters**: 14 billion
+    - **Context Length**: 8K
+    - **Training Tokens**: 3.0 trillion
+    - **Release Date**: September 25, 2023
+    
+    **Minimum Hardware Requirements**
+    - BF16: 30.15GB GPU memory
+    - Int8: 18.81GB GPU memory
+    - Int4: 13.01GB GPU memory
+  </Tab>
+  
+  <Tab title="Qwen-72B">
+    **Model Configuration**
+    - **Parameters**: 72 billion
+    - **Context Length**: 32K
+    - **Training Tokens**: 3.0 trillion
+    - **System Prompt Support**: Enhanced
+    - **Release Date**: November 30, 2023
+    
+    **Minimum Hardware Requirements**
+    - BF16: 144.69GB (2×A100)
+    - Int8: 81.27GB (2×A100)
+    - Int4: 48.86GB
+  </Tab>
+</Tabs>
+
+## Training Data
+
+Qwen models are pretrained on a diverse multilingual dataset:
+
+### Data Sources
+
+- **Web Documents**: Publicly available web content
+- **Code Files**: Programming repositories and code samples
+- **Mathematical Data**: Including RFT data from gsm8k-ScRel
+- **Total Volume**: 2.2T to 3.0T tokens (model-dependent)
+
+### Language Coverage
+
+<Note>
+Primary focus on **Chinese** and **English**, with support for multilingual content including Japanese, Korean, Arabic, Thai, Vietnamese, Indonesian, Polish, Russian, Dutch, Portuguese, Italian, German, Spanish, and French.
+</Note>
+
+### Data Processing
+
+- **Quality Filtering**: Ensemble of models to exclude low-quality content
+- **Safety Filtering**: NSFW content removal
+- **Deduplication**: Global fuzzy deduplication
+- **Optimization**: Multiple ablation experiments to optimize data mix
+
+## Benchmark Performance
+
+### Chinese Language Understanding
+
+**C-Eval** (5-shot) - Testing common-sense capability in Chinese across 52 subjects:
+
+| Model       | Average | STEM | Social Sciences | Humanities | Others |
+|-------------|---------|------|-----------------|------------|--------|
+| LLaMA2-7B   | 32.5    | -    | -               | -          | -      |
+| ChatGLM2-6B | 51.7    | 48.6 | 60.5            | 51.3       | 49.8   |
+| InternLM-7B | 53.4    | 48.0 | 67.4            | 55.4       | 45.8   |
+| **Qwen-7B** | **63.5** | **52.8** | **74.1**    | **63.1**   | **55.2** |
+| **Qwen-14B** | **72.1** | -    | -               | -          | -      |
+| **Qwen-72B** | **83.3** | -    | -               | -          | -      |
+
+### English Language Understanding
+
+**MMLU** (5-shot) - Comprehensive English evaluation across 57 academic subjects:
+
+| Model       | Average | STEM | Social Sciences | Humanities | Others |
+|-------------|---------|------|-----------------|------------|--------|
+| LLaMA-7B    | 35.1    | 30.5 | 38.3            | 34.0       | 38.1   |
+| LLaMA2-7B   | 46.8    | 36.4 | 51.2            | 42.9       | 52.2   |
+| Baichuan-7B | 42.3    | 35.6 | 48.9            | 38.4       | 48.1   |
+| ChatGLM2-6B | 47.9    | 41.2 | 54.4            | 43.7       | 54.5   |
+| InternLM-7B | 51.0    | -    | -               | -          | -      |
+| **Qwen-7B** | **58.2** | **47.6** | **65.9**   | **51.5**   | **64.7** |
+| **Qwen-14B** | **66.3** | -    | -               | -          | -      |
+| **Qwen-72B** | **77.4** | -    | -               | -          | -      |
+
+### Coding Capability
+
+**HumanEval** (Pass@1) - Python coding benchmark:
+
+| Model       | Pass@1  |
+|-------------|--------|
+| LLaMA-7B    | 10.5   |
+| LLaMA2-7B   | 12.8   |
+| Baichuan-7B | 9.2    |
+| ChatGLM2-6B | 9.2    |
+| InternLM-7B | 10.4   |
+| **Qwen-7B** | **29.9** |
+| **Qwen-14B** | **32.3** |
+| **Qwen-72B** | **35.4** |
+
+### Mathematical Reasoning
+
+**GSM8K** (8-shot) - Grade school math problems:
+
+| Model       | Accuracy |
+|-------------|----------|
+| LLaMA-7B    | 11.0     |
+| LLaMA2-7B   | 16.7     |
+| Baichuan-7B | 9.7      |
+| InternLM-7B | 31.2     |
+| ChatGLM2-6B | 32.4     |
+| **Qwen-7B** | **51.7** |
+| **Qwen-14B** | **61.3** |
+| **Qwen-72B** | **78.9** |
+
+**MATH** (4-shot) - Advanced mathematical problem solving:
+
+| Model       | Accuracy |
+|-------------|----------|
+| LLaMA2-7B   | 3.3      |
+| InternLM-7B | 6.3      |
+| ChatGLM2-6B | 6.5      |
+| **Qwen-7B** | **11.6** |
+| **Qwen-14B** | **24.8** |
+| **Qwen-72B** | **35.2** |
+
+### Translation
+
+**WMT22** (5-shot BLEU) - Translation quality:
+
+| Model       | Average | zh→en | en→zh |
+|-------------|---------|-------|-------|
+| LLaMA-7B    | 12.7    | 16.7  | 8.7   |
+| LLaMA2-7B   | 19.9    | 21.9  | 17.9  |
+| Baichuan-7B | 24.6    | 22.6  | 26.6  |
+| InternLM-7B | 11.8    | 9.0   | 14.5  |
+| **Qwen-7B** | **27.5** | **24.3** | **30.6** |
+
+## Long Context Support
+
+Qwen base models support extended context lengths through training-free methods:
+
+### Extension Techniques
+
+<AccordionGroup>
+  <Accordion title="Dynamic NTK-aware Interpolation">
+    Dynamically adjusts rotary position embeddings to support longer sequences without additional training.
+    
+    **Configuration**: Set `use_dynamic_ntk=true` in config.json
+  </Accordion>
+  
+  <Accordion title="LogN Attention Scaling">
+    Applies logarithmic scaling to attention scores for improved long-context performance.
+    
+    **Configuration**: Set `use_logn_attn=true` in config.json
+  </Accordion>
+  
+  <Accordion title="Local Window Attention">
+    Reduces memory usage by limiting attention to local windows for very long sequences.
+    
+    **Configuration**: Enable via inference parameters
+  </Accordion>
+</AccordionGroup>
+
+### Perplexity on arXiv (Qwen-7B)
+
+| Method | 1024 | 2048 | 4096 | 8192 | 16384 |
+|--------|------|------|------|------|-------|
+| Baseline | 4.23 | 3.78 | 39.35 | 469.81 | 2645.09 |
+| + dynamic_ntk | 4.23 | 3.78 | 3.59 | 3.66 | 5.71 |
+| + dynamic_ntk + logn | 4.23 | 3.78 | 3.58 | 3.56 | 4.62 |
+| + dynamic_ntk + logn + local_attn | 4.23 | 3.78 | 3.58 | **3.49** | **4.32** |
+
+<Note>
+With all techniques enabled, Qwen-7B can extend from 2048 to 16384 tokens with minimal perplexity degradation.
+</Note>
+
+## Tokenizer
+
+Qwen uses a custom tokenizer optimized for multilingual efficiency:
+
+### Features
+
+- **Library**: Based on tiktoken (OpenAI's tokenizer)
+- **Vocabulary Size**: 151,851 tokens
+- **Number Encoding**: Single-digit segmentation for better arithmetic
+- **Efficiency**: High compression rate for Chinese, English, and code
+- **Multilingual**: Native support for 100+ languages without vocabulary expansion
+
+### Compression Efficiency
+
+Compared to XLM-R (baseline=1.0), Qwen achieves high compression rates:
+
+- **Chinese**: ~1.5× more efficient
+- **English**: ~1.3× more efficient  
+- **Code**: ~1.4× more efficient
+- **Other Languages**: 1.2-1.5× more efficient (Thai, Hebrew, Arabic, Korean, Vietnamese, Japanese, etc.)
+
+## Usage Example
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model and tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B",
+    trust_remote_code=True
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Generate text
+inputs = tokenizer(
+    '蒙古国的首都是乌兰巴托（Ulaanbaatar）\n冰岛的首都是雷克雅未克（Reykjavik）\n埃塞俄比亚的首都是',
+    return_tensors='pt'
+)
+inputs = inputs.to(model.device)
+
+pred = model.generate(**inputs)
+print(tokenizer.decode(pred.cpu()[0], skip_special_tokens=True))
+# Output: 蒙古国的首都是乌兰巴托（Ulaanbaatar）
+#         冰岛的首都是雷克雅未克（Reykjavik）
+#         埃塞俄比亚的首都是亚的斯亚贝巴（Addis Ababa）...
+```
+
+## Hardware Requirements
+
+### Inference Memory Usage (Generating 2048 tokens)
+
+<Tabs>
+  <Tab title="Qwen-1.8B">
+    | Precision | GPU Memory | Speed (tokens/s) |
+    |-----------|------------|------------------|
+    | BF16      | 4.23GB     | 54.09            |
+    | Int8      | 3.48GB     | 55.56            |
+    | Int4      | 2.91GB     | 71.07            |
+  </Tab>
+  
+  <Tab title="Qwen-7B">
+    | Precision | GPU Memory | Speed (tokens/s) |
+    |-----------|------------|------------------|
+    | BF16      | 16.99GB    | 40.93            |
+    | Int8      | 11.20GB    | 37.47            |
+    | Int4      | 8.21GB     | 50.09            |
+  </Tab>
+  
+  <Tab title="Qwen-14B">
+    | Precision | GPU Memory | Speed (tokens/s) |
+    |-----------|------------|------------------|
+    | BF16      | 30.15GB    | 32.22            |
+    | Int8      | 18.81GB    | 29.28            |
+    | Int4      | 13.01GB    | 38.72            |
+  </Tab>
+  
+  <Tab title="Qwen-72B">
+    | Precision | GPU Memory | Speed (tokens/s) |
+    |-----------|------------|------------------|
+    | BF16      | 144.69GB (2×A100) | 8.48     |
+    | Int8      | 81.27GB (2×A100)  | 9.05     |
+    | Int4      | 48.86GB    | 11.32            |
+    | BF16 + vLLM | 2×A100   | 17.60            |
+  </Tab>
+</Tabs>
+
+<Note>
+Profiling conducted on A100-SXM4-80G GPU with PyTorch 2.0.1, CUDA 11.8, and Flash Attention 2.
+</Note>
+
+## Model Downloads
+
+<CardGroup cols={2}>
+  <Card title="Qwen-1.8B" icon="download" href="https://huggingface.co/Qwen/Qwen-1_8B">
+    🤗 Hugging Face | 🤖 ModelScope
+  </Card>
+  
+  <Card title="Qwen-7B" icon="download" href="https://huggingface.co/Qwen/Qwen-7B">
+    🤗 Hugging Face | 🤖 ModelScope
+  </Card>
+  
+  <Card title="Qwen-14B" icon="download" href="https://huggingface.co/Qwen/Qwen-14B">
+    🤗 Hugging Face | 🤖 ModelScope
+  </Card>
+  
+  <Card title="Qwen-72B" icon="download" href="https://huggingface.co/Qwen/Qwen-72B">
+    🤗 Hugging Face | 🤖 ModelScope
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chat Models" icon="message" href="/models/chat-models">
+    Explore conversation-aligned models
+  </Card>
+  
+  <Card title="Fine-tuning" icon="wrench" href="/fine-tuning/overview">
+    Learn how to fine-tune base models
+  </Card>
+  
+  <Card title="Quantization" icon="compress" href="/optimization/quantization">
+    Reduce memory usage with quantization
+  </Card>
+  
+  <Card title="Model Selection" icon="compass" href="/models/model-selection">
+    Choose the right model size
+  </Card>
+</CardGroup>

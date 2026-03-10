@@ -1,0 +1,747 @@
+---
+title: FastChat Deployment
+description: Deploy Qwen with FastChat for a complete solution with web UI, OpenAI API, and advanced features
+---
+
+FastChat is a comprehensive platform for deploying LLMs with web UI, REST API, and distributed serving capabilities. When combined with vLLM, it provides production-grade performance with an intuitive interface.
+
+## Overview
+
+FastChat provides a three-component architecture:
+
+<Steps>
+  <Step title="Controller">
+    Manages distributed workers and routes requests
+  </Step>
+  <Step title="Model Worker">
+    Loads and serves the model (can use vLLM backend)
+  </Step>
+  <Step title="API/UI Server">
+    Provides web interface or OpenAI-compatible API
+  </Step>
+</Steps>
+
+## Installation
+
+<CodeGroup>
+```bash Full Installation
+pip install "fschat[model_worker,webui]==0.2.33" "openai<1.0" vllm
+```
+
+```bash Minimal Installation
+pip install fschat vllm
+```
+
+```bash Docker
+docker pull qwenllm/qwen:cu121
+# Image includes FastChat and vLLM pre-installed
+```
+</CodeGroup>
+
+<Note>
+FastChat 0.2.33 is the recommended version for stability with Qwen models.
+</Note>
+
+## Quick Start
+
+### Web UI Deployment
+
+<Steps>
+  <Step title="Start the Controller">
+    The controller manages model workers:
+    ```bash
+    python -m fastchat.serve.controller
+    ```
+    Runs on `http://localhost:21001` by default.
+  </Step>
+
+  <Step title="Launch Model Worker">
+    Start vLLM worker for high performance:
+    ```bash
+    python -m fastchat.serve.vllm_worker \
+      --model-path Qwen/Qwen-7B-Chat \
+      --trust-remote-code \
+      --dtype bfloat16
+    ```
+  </Step>
+
+  <Step title="Start Web Server">
+    Launch the Gradio web interface:
+    ```bash
+    python -m fastchat.serve.gradio_web_server
+    ```
+    Access at `http://localhost:7860`
+  </Step>
+</Steps>
+
+### OpenAI API Deployment
+
+<Steps>
+  <Step title="Start Controller">
+    ```bash
+    python -m fastchat.serve.controller
+    ```
+  </Step>
+
+  <Step title="Launch vLLM Worker">
+    ```bash
+    python -m fastchat.serve.vllm_worker \
+      --model-path Qwen/Qwen-7B-Chat \
+      --trust-remote-code \
+      --dtype bfloat16
+    ```
+  </Step>
+
+  <Step title="Start API Server">
+    ```bash
+    python -m fastchat.serve.openai_api_server \
+      --host localhost \
+      --port 8000
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Worker Configuration
+
+<CodeGroup>
+```bash Single GPU
+python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --dtype bfloat16
+```
+
+```bash Multi-GPU (4 GPUs)
+python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16
+```
+
+```bash Int4 Model
+python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat-Int4 \
+  --trust-remote-code \
+  --dtype float16
+```
+
+```bash Custom Configuration
+python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-14B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 2 \
+  --dtype bfloat16 \
+  --gpu-memory-utilization 0.95 \
+  --max-num-seqs 256 \
+  --worker-address http://localhost:21002 \
+  --controller-address http://localhost:21001
+```
+</CodeGroup>
+
+### Worker Parameters
+
+<ParamField path="--model-path" type="string" required>
+  Path to model checkpoint (HuggingFace or local path)
+</ParamField>
+
+<ParamField path="--trust-remote-code" type="boolean" required>
+  Required for Qwen models
+</ParamField>
+
+<ParamField path="--tensor-parallel-size" type="int" default="1">
+  Number of GPUs for tensor parallelism
+</ParamField>
+
+<ParamField path="--dtype" type="string" default="auto">
+  Model data type: `auto`, `bfloat16`, `float16`, `float32`
+</ParamField>
+
+<ParamField path="--gpu-memory-utilization" type="float" default="0.90">
+  Fraction of GPU memory to use
+</ParamField>
+
+<ParamField path="--max-num-seqs" type="int" default="256">
+  Maximum concurrent sequences
+</ParamField>
+
+<ParamField path="--worker-address" type="string">
+  Worker listening address
+</ParamField>
+
+<ParamField path="--controller-address" type="string">
+  Controller address to register with
+</ParamField>
+
+### API Server Configuration
+
+```bash
+python -m fastchat.serve.openai_api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --controller-address http://localhost:21001 \
+  --api-keys sk-key1 sk-key2
+```
+
+<ParamField path="--host" type="string" default="localhost">
+  API server bind address
+</ParamField>
+
+<ParamField path="--port" type="int" default="8000">
+  API server port
+</ParamField>
+
+<ParamField path="--controller-address" type="string">
+  Address of the controller service
+</ParamField>
+
+<ParamField path="--api-keys" type="string[]">
+  List of valid API keys for authentication
+</ParamField>
+
+## API Usage
+
+### OpenAI Python Client
+
+<CodeGroup>
+```python Basic Chat
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"  # Or your API key if configured
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is machine learning?"}
+    ],
+    temperature=0.7,
+    max_tokens=2048
+)
+
+print(response.choices[0].message.content)
+```
+
+```python Streaming Response
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+for chunk in openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "user", "content": "Write a story about space exploration"}
+    ],
+    stream=True
+):
+    if hasattr(chunk.choices[0].delta, "content"):
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+```python With Stop Words
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "user", "content": "List 5 programming languages"}
+    ],
+    stop=["Observation:"],  # Custom stop sequences
+    temperature=0.8
+)
+
+print(response.choices[0].message.content)
+```
+
+```python Function Calling
+import openai
+import json
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+functions = [
+    {
+        "name": "get_current_weather",
+        "description": "Get the current weather in a location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "City name"
+                }
+            },
+            "required": ["location"]
+        }
+    }
+]
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
+    functions=functions
+)
+
+print(response.choices[0].message)
+```
+</CodeGroup>
+
+<Note>
+Unlike vLLM standalone mode, FastChat handles stop tokens automatically. No need to specify `stop_token_ids`.
+</Note>
+
+## Multi-Model Deployment
+
+Deploy multiple models simultaneously:
+
+<Steps>
+  <Step title="Start Controller">
+    ```bash
+    python -m fastchat.serve.controller
+    ```
+  </Step>
+
+  <Step title="Launch Multiple Workers">
+    Start workers on different ports:
+    ```bash
+    # Worker 1: Qwen-7B
+    python -m fastchat.serve.vllm_worker \
+      --model-path Qwen/Qwen-7B-Chat \
+      --trust-remote-code \
+      --dtype bfloat16 \
+      --worker-address http://localhost:21002
+
+    # Worker 2: Qwen-14B
+    python -m fastchat.serve.vllm_worker \
+      --model-path Qwen/Qwen-14B-Chat \
+      --trust-remote-code \
+      --tensor-parallel-size 2 \
+      --dtype bfloat16 \
+      --worker-address http://localhost:21003
+
+    # Worker 3: Qwen-72B
+    CUDA_VISIBLE_DEVICES=2,3,4,5 python -m fastchat.serve.vllm_worker \
+      --model-path Qwen/Qwen-72B-Chat \
+      --trust-remote-code \
+      --tensor-parallel-size 4 \
+      --dtype bfloat16 \
+      --worker-address http://localhost:21004
+    ```
+  </Step>
+
+  <Step title="Start API Server">
+    ```bash
+    python -m fastchat.serve.openai_api_server \
+      --host 0.0.0.0 \
+      --port 8000
+    ```
+  </Step>
+</Steps>
+
+### Model Selection
+
+Clients can specify which model to use:
+
+```python
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+# List available models
+models = openai.Model.list()
+print(models)
+
+# Use specific model
+response = openai.ChatCompletion.create(
+    model="Qwen-7B-Chat",  # Or "Qwen-14B-Chat", "Qwen-72B-Chat"
+    messages=[{"role": "user", "content": "Hello"}]
+)
+```
+
+## Production Deployment
+
+### Systemd Services
+
+Create systemd service files for each component:
+
+<CodeGroup>
+```ini fastchat-controller.service
+[Unit]
+Description=FastChat Controller
+After=network.target
+
+[Service]
+Type=simple
+User=qwen
+WorkingDirectory=/opt/qwen
+Environment="PATH=/opt/qwen/venv/bin"
+ExecStart=/opt/qwen/venv/bin/python -m fastchat.serve.controller
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini fastchat-worker.service
+[Unit]
+Description=FastChat vLLM Worker
+After=network.target fastchat-controller.service
+Requires=fastchat-controller.service
+
+[Service]
+Type=simple
+User=qwen
+WorkingDirectory=/opt/qwen
+Environment="PATH=/opt/qwen/venv/bin:/usr/local/cuda/bin"
+Environment="CUDA_VISIBLE_DEVICES=0,1,2,3"
+ExecStart=/opt/qwen/venv/bin/python -m fastchat.serve.vllm_worker \
+  --model-path /models/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini fastchat-api.service
+[Unit]
+Description=FastChat OpenAI API Server
+After=network.target fastchat-controller.service
+Requires=fastchat-controller.service
+
+[Service]
+Type=simple
+User=qwen
+WorkingDirectory=/opt/qwen
+Environment="PATH=/opt/qwen/venv/bin"
+ExecStart=/opt/qwen/venv/bin/python -m fastchat.serve.openai_api_server \
+  --host 0.0.0.0 \
+  --port 8000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+</CodeGroup>
+
+Manage services:
+
+```bash
+# Enable and start all services
+sudo systemctl daemon-reload
+sudo systemctl enable fastchat-controller fastchat-worker fastchat-api
+sudo systemctl start fastchat-controller
+sleep 5
+sudo systemctl start fastchat-worker
+sleep 10
+sudo systemctl start fastchat-api
+
+# Check status
+sudo systemctl status fastchat-controller
+sudo systemctl status fastchat-worker
+sudo systemctl status fastchat-api
+
+# View logs
+sudo journalctl -u fastchat-worker -f
+```
+
+### Docker Compose
+
+Complete deployment with Docker Compose:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  controller:
+    image: qwenllm/qwen:cu121
+    container_name: fastchat-controller
+    command: python -m fastchat.serve.controller
+    ports:
+      - "21001:21001"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:21001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    image: qwenllm/qwen:cu121
+    container_name: fastchat-worker
+    command: >
+      python -m fastchat.serve.vllm_worker
+      --model-path /models/Qwen-7B-Chat
+      --trust-remote-code
+      --dtype bfloat16
+      --controller-address http://controller:21001
+    volumes:
+      - /path/to/models:/models:ro
+    depends_on:
+      - controller
+    restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  api-server:
+    image: qwenllm/qwen:cu121
+    container_name: fastchat-api
+    command: >
+      python -m fastchat.serve.openai_api_server
+      --host 0.0.0.0
+      --port 8000
+      --controller-address http://controller:21001
+    ports:
+      - "8000:8000"
+    depends_on:
+      - controller
+      - worker
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web-server:
+    image: qwenllm/qwen:cu121
+    container_name: fastchat-web
+    command: >
+      python -m fastchat.serve.gradio_web_server
+      --controller-address http://controller:21001
+    ports:
+      - "7860:7860"
+    depends_on:
+      - controller
+      - worker
+    restart: always
+```
+
+Launch:
+
+```bash
+docker-compose up -d
+
+# Scale workers
+docker-compose up -d --scale worker=3
+
+# View logs
+docker-compose logs -f worker
+```
+
+## Load Balancing
+
+FastChat controller automatically load balances across multiple workers:
+
+```bash
+# Start controller
+python -m fastchat.serve.controller
+
+# Start multiple workers for same model (horizontal scaling)
+CUDA_VISIBLE_DEVICES=0 python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --worker-address http://localhost:21002
+
+CUDA_VISIBLE_DEVICES=1 python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --worker-address http://localhost:21003
+
+CUDA_VISIBLE_DEVICES=2 python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --worker-address http://localhost:21004
+
+# Start API server
+python -m fastchat.serve.openai_api_server --host 0.0.0.0 --port 8000
+```
+
+The controller distributes requests across workers automatically.
+
+## Monitoring
+
+### Worker Status
+
+Check registered workers:
+
+```bash
+curl http://localhost:21001/list_models
+```
+
+### Health Checks
+
+```bash
+# API server health
+curl http://localhost:8000/v1/models
+
+# Test inference
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 10
+  }'
+```
+
+### Logging
+
+Enable detailed logging:
+
+```bash
+# Set log level
+export FASTCHAT_LOG_LEVEL=DEBUG
+
+# Run with logging
+python -m fastchat.serve.vllm_worker \
+  --model-path Qwen/Qwen-7B-Chat \
+  --trust-remote-code 2>&1 | tee worker.log
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Worker registration fails">
+    **Error**: Worker not appearing in controller
+    
+    **Solutions**:
+    - Check controller is running: `curl http://localhost:21001`
+    - Verify controller address in worker: `--controller-address http://localhost:21001`
+    - Check network connectivity between services
+    - Review logs for connection errors
+  </Accordion>
+
+  <Accordion title="API returns 'No available models'">
+    **Error**: API returns empty model list
+    
+    **Solutions**:
+    - Ensure workers have registered successfully
+    - Check controller status: `curl http://localhost:21001/list_models`
+    - Wait for model loading to complete (can take minutes)
+    - Check worker logs for errors
+  </Accordion>
+
+  <Accordion title="Slow response times">
+    **Issue**: High latency in responses
+    
+    **Solutions**:
+    - Use vLLM worker instead of model_worker
+    - Increase `--max-num-seqs` on worker
+    - Add more workers for horizontal scaling
+    - Enable tensor parallelism for large models
+    - Use quantized models (Int4/Int8)
+  </Accordion>
+
+  <Accordion title="Worker crashes">
+    **Error**: Worker process exits unexpectedly
+    
+    **Solutions**:
+    - Check GPU memory: `nvidia-smi`
+    - Reduce `--gpu-memory-utilization`
+    - Use smaller model or quantized version
+    - Check CUDA compatibility
+    - Review system logs: `dmesg | grep -i error`
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Features
+
+### Custom System Prompts
+
+Set system prompts in the web UI or API:
+
+```python
+import openai
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {
+            "role": "system", 
+            "content": "You are an expert Python programmer. Always provide code examples."
+        },
+        {
+            "role": "user", 
+            "content": "How do I read a CSV file?"
+        }
+    ]
+)
+```
+
+### Conversation History
+
+Maintain multi-turn conversations:
+
+```python
+import openai
+
+history = []
+
+def chat(user_message):
+    history.append({"role": "user", "content": user_message})
+    
+    response = openai.ChatCompletion.create(
+        model="Qwen",
+        messages=history
+    )
+    
+    assistant_message = response.choices[0].message.content
+    history.append({"role": "assistant", "content": assistant_message})
+    
+    return assistant_message
+
+# Multi-turn conversation
+print(chat("What is Python?"))
+print(chat("What are its main features?"))
+print(chat("Give me an example"))
+```
+
+## Performance Comparison
+
+### FastChat vs Standalone
+
+| Feature | Standalone vLLM | FastChat + vLLM |
+|---------|----------------|----------------|
+| Performance | Same | Same |
+| Web UI | No | Yes |
+| Multi-model | Manual | Automatic |
+| Load Balancing | External | Built-in |
+| Setup Complexity | Low | Medium |
+| Production Ready | Yes | Yes |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Production Guide" icon="shield" href="/deployment/production">
+    Best practices for production deployments
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/monitoring">
+    Set up comprehensive monitoring
+  </Card>
+  <Card title="Performance Tuning" icon="gauge-high" href="/performance/optimization">
+    Advanced optimization techniques
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Complete API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,445 @@
+---
+title: 'Using Qwen with ModelScope'
+description: 'Run Qwen models using the ModelScope platform'
+---
+
+## Overview
+
+ModelScope is an open-source platform for Model-as-a-Service (MaaS), providing flexible and cost-effective model services to AI developers. Qwen models are fully integrated with ModelScope, offering an alternative to Hugging Face for model hosting and inference.
+
+## Why ModelScope?
+
+<CardGroup cols={2}>
+  <Card title="Network Optimization" icon="globe">
+    Better download speeds in certain regions, especially Asia
+  </Card>
+  <Card title="Local Mirror" icon="server">
+    Alternative when Hugging Face is unavailable
+  </Card>
+  <Card title="MaaS Platform" icon="cloud">
+    Integrated model service infrastructure
+  </Card>
+  <Card title="Same API" icon="code">
+    Compatible interface with Transformers
+  </Card>
+</CardGroup>
+
+## Installation
+
+Install ModelScope and required dependencies:
+
+```bash
+pip install modelscope
+pip install transformers>=4.32.0
+pip install torch>=2.0.0
+```
+
+## Direct ModelScope Usage
+
+Use ModelScope's API for loading and running Qwen models:
+
+```python
+from modelscope import AutoModelForCausalLM, AutoTokenizer
+from modelscope import GenerationConfig
+
+# Model names: "qwen/Qwen-7B-Chat", "qwen/Qwen-14B-Chat"
+tokenizer = AutoTokenizer.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    device_map="auto", 
+    trust_remote_code=True, 
+    fp16=True
+).eval()
+
+# Configure generation parameters
+model.generation_config = GenerationConfig.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+
+# First turn
+response, history = model.chat(tokenizer, "你好", history=None)
+print(response)
+
+# Second turn
+response, history = model.chat(tokenizer, "浙江的省会在哪里？", history=history) 
+print(response)
+
+# Third turn
+response, history = model.chat(tokenizer, "它有什么好玩的景点", history=history)
+print(response)
+```
+
+<Note>
+  Note the model naming convention: ModelScope uses `qwen/Qwen-7B-Chat` while Hugging Face uses `Qwen/Qwen-7B-Chat` (capital Q).
+</Note>
+
+## Download and Use Locally
+
+Download models from ModelScope and use them with Transformers:
+
+<Steps>
+  <Step title="Download Model">
+    Use `snapshot_download` to fetch the model:
+    
+    ```python
+    from modelscope import snapshot_download
+    
+    # Download to local directory
+    model_dir = snapshot_download('qwen/Qwen-7B-Chat')
+    print(f"Model downloaded to: {model_dir}")
+    ```
+    
+    Available models:
+    - `qwen/Qwen-1_8B-Chat`
+    - `qwen/Qwen-7B-Chat`
+    - `qwen/Qwen-14B-Chat`
+    - `qwen/Qwen-72B-Chat`
+  </Step>
+  
+  <Step title="Load with Transformers">
+    Load the downloaded model using Transformers:
+    
+    ```python
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    
+    # Load from local directory
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_dir, 
+        trust_remote_code=True
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+  
+  <Step title="Run Inference">
+    Use the model as normal:
+    
+    ```python
+    response, history = model.chat(tokenizer, "你好", history=None)
+    print(response)
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's a complete workflow downloading from ModelScope and using with Transformers:
+
+```python
+from modelscope import snapshot_download
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Step 1: Download model checkpoint to local directory
+model_dir = snapshot_download('qwen/Qwen-14B-Chat')
+
+# Step 2: Load model and tokenizer from local directory
+# trust_remote_code is still required for custom model code
+tokenizer = AutoTokenizer.from_pretrained(
+    model_dir, 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    model_dir,
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Step 3: Run inference
+response, history = model.chat(
+    tokenizer, 
+    "请介绍一下中国的历史", 
+    history=None
+)
+print(response)
+
+response, history = model.chat(
+    tokenizer, 
+    "能详细说说唐朝吗？", 
+    history=history
+)
+print(response)
+```
+
+## Model Variants on ModelScope
+
+All Qwen model variants are available on ModelScope:
+
+<Tabs>
+  <Tab title="Chat Models">
+    Fine-tuned for conversation:
+    
+    - `qwen/Qwen-1_8B-Chat`
+    - `qwen/Qwen-7B-Chat`
+    - `qwen/Qwen-14B-Chat`
+    - `qwen/Qwen-72B-Chat`
+    
+    ```python
+    from modelscope import AutoModelForCausalLM, AutoTokenizer
+    
+    tokenizer = AutoTokenizer.from_pretrained(
+        "qwen/Qwen-7B-Chat", 
+        trust_remote_code=True
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        "qwen/Qwen-7B-Chat",
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Tab>
+  
+  <Tab title="Base Models">
+    Pre-trained base models:
+    
+    - `qwen/Qwen-1_8B`
+    - `qwen/Qwen-7B`
+    - `qwen/Qwen-14B`
+    - `qwen/Qwen-72B`
+    
+    ```python
+    from modelscope import snapshot_download
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    
+    model_dir = snapshot_download('qwen/Qwen-7B')
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Tab>
+  
+  <Tab title="Quantized Models">
+    Int4 and Int8 quantized versions:
+    
+    - `qwen/Qwen-7B-Chat-Int4`
+    - `qwen/Qwen-7B-Chat-Int8`
+    - `qwen/Qwen-14B-Chat-Int4`
+    - `qwen/Qwen-14B-Chat-Int8`
+    - `qwen/Qwen-72B-Chat-Int4`
+    - `qwen/Qwen-72B-Chat-Int8`
+    
+    ```python
+    from modelscope import snapshot_download
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    
+    model_dir = snapshot_download('qwen/Qwen-7B-Chat-Int4')
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Tab>
+</Tabs>
+
+## Precision Options
+
+ModelScope supports the same precision options as Transformers:
+
+<CodeGroup>
+
+```python FP16 (Default)
+from modelscope import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    fp16=True
+).eval()
+```
+
+```python BF16
+from modelscope import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True,
+    bf16=True
+).eval()
+```
+
+```python Auto
+from modelscope import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+</CodeGroup>
+
+## Generation Configuration
+
+Customize generation behavior with ModelScope's GenerationConfig:
+
+```python
+from modelscope import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Load and customize generation config
+generation_config = GenerationConfig.from_pretrained(
+    "qwen/Qwen-7B-Chat", 
+    trust_remote_code=True
+)
+
+# Adjust parameters
+generation_config.top_p = 0.8
+generation_config.temperature = 0.7
+generation_config.max_new_tokens = 512
+generation_config.repetition_penalty = 1.05
+
+# Apply to model
+model.generation_config = generation_config
+
+# Use in chat
+response, history = model.chat(
+    tokenizer, 
+    "讲一个有趣的故事", 
+    history=None
+)
+print(response)
+```
+
+## Caching and Resume
+
+ModelScope supports resume download for interrupted transfers:
+
+```python
+from modelscope import snapshot_download
+
+# Download with automatic resume on interruption
+model_dir = snapshot_download(
+    'qwen/Qwen-7B-Chat',
+    cache_dir='/path/to/cache',  # Specify cache directory
+    revision='v1.0.0'  # Pin to specific version
+)
+
+print(f"Model cached at: {model_dir}")
+```
+
+## Comparing ModelScope and Hugging Face
+
+| Feature | ModelScope | Hugging Face |
+|---------|------------|---------------|
+| Model naming | `qwen/Qwen-7B-Chat` | `Qwen/Qwen-7B-Chat` |
+| Download speed | Faster in Asia | Faster in US/EU |
+| API compatibility | Same as Transformers | Native Transformers |
+| Cache location | `~/.cache/modelscope` | `~/.cache/huggingface` |
+| Resume download | ✅ Yes | ✅ Yes |
+
+## Hybrid Approach
+
+Download from ModelScope but load config from Hugging Face:
+
+```python
+from modelscope import snapshot_download
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import GenerationConfig
+
+# Download model from ModelScope
+model_dir = snapshot_download('qwen/Qwen-7B-Chat')
+
+# Load model and tokenizer locally
+tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_dir,
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# But load generation config from Hugging Face (if you prefer)
+model.generation_config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen-7B-Chat",  # Note: Capital Q for HF
+    trust_remote_code=True
+)
+
+response, history = model.chat(tokenizer, "你好", history=None)
+print(response)
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Download is slow">
+    Try specifying a different mirror or check your network:
+    
+    ```python
+    import os
+    os.environ['MODELSCOPE_CACHE'] = '/path/to/fast/storage'
+    
+    from modelscope import snapshot_download
+    model_dir = snapshot_download('qwen/Qwen-7B-Chat')
+    ```
+  </Accordion>
+  
+  <Accordion title="Model not found">
+    Ensure you're using the correct naming convention:
+    
+    - ModelScope: `qwen/Qwen-7B-Chat` (lowercase q)
+    - Hugging Face: `Qwen/Qwen-7B-Chat` (capital Q)
+  </Accordion>
+  
+  <Accordion title="trust_remote_code error">
+    Always include `trust_remote_code=True` when loading Qwen models:
+    
+    ```python
+    tokenizer = AutoTokenizer.from_pretrained(
+        "qwen/Qwen-7B-Chat", 
+        trust_remote_code=True  # Required!
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Batch Inference" icon="layer-group" href="/inference/batch-inference">
+    Process multiple inputs efficiently
+  </Card>
+  <Card title="Streaming" icon="stream" href="/inference/streaming">
+    Stream responses in real-time
+  </Card>
+  <Card title="Multi-GPU" icon="server" href="/inference/multi-gpu">
+    Scale across multiple GPUs
+  </Card>
+  <Card title="Transformers Guide" icon="book" href="/inference/transformers">
+    Deep dive into Transformers usage
+  </Card>
+</CardGroup>

@@ -1,0 +1,383 @@
+---
+title: 'Tool Use and Integration'
+description: 'Master ReAct prompting and tool integration patterns with Qwen models'
+---
+
+## Overview
+
+Qwen models support **ReAct (Reasoning and Acting)** prompting, enabling them to use external tools through a thought-action-observation loop. This allows the model to break down complex tasks, call appropriate tools, and reason about the results.
+
+## ReAct Prompting Pattern
+
+ReAct prompting follows this iterative pattern:
+
+```
+Question: [User's question]
+Thought: [Model's reasoning about what to do]
+Action: [Tool to call]
+Action Input: [Arguments for the tool]
+Observation: [Result from the tool]
+... (repeat as needed)
+Thought: I now know the final answer
+Final Answer: [Model's final response]
+```
+
+## Setting Up ReAct Prompting
+
+### Define Tool Descriptions
+
+```python
+TOOL_DESC = """{name_for_model}: Call this tool to interact with the {name_for_human} API. What is the {name_for_human} API useful for? {description_for_model} Parameters: {parameters}"""
+
+REACT_PROMPT = """Answer the following questions as best you can. You have access to the following tools:
+
+{tools_text}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tools_name_text}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can be repeated zero or more times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {query}"""
+```
+
+### Example Tool Definitions
+
+```python
+tools = [
+    {
+        'name_for_human': '谷歌搜索',
+        'name_for_model': 'google_search',
+        'description_for_model': '谷歌搜索是一个通用搜索引擎，可用于访问互联网、查询百科知识、了解时事新闻等。',
+        'parameters': [
+            {
+                'name': 'search_query',
+                'description': '搜索关键词或短语',
+                'required': True,
+                'schema': {'type': 'string'},
+            }
+        ],
+    },
+    {
+        'name_for_human': '文生图',
+        'name_for_model': 'image_gen',
+        'description_for_model': '文生图是一个AI绘画（图像生成）服务，输入文本描述，返回根据文本作画得到的图片的URL',
+        'parameters': [
+            {
+                'name': 'prompt',
+                'description': '英文关键词，描述了希望图像具有什么内容',
+                'required': True,
+                'schema': {'type': 'string'},
+            }
+        ],
+    },
+]
+```
+
+## Complete Implementation
+
+<CodeGroup>
+```python Basic ReAct Loop
+import json
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+def llm_with_plugin(prompt: str, history, list_of_plugin_info=()):
+    """Main entry point for tool-using conversation."""
+    chat_history = [(x['user'], x['bot']) for x in history] + [(prompt, '')]
+    
+    # Build initial prompt with tool information
+    planning_prompt = build_input_text(chat_history, list_of_plugin_info)
+    
+    text = ''
+    while True:
+        # Generate response
+        output = text_completion(
+            planning_prompt + text,
+            stop_words=['Observation:', 'Observation:\n']
+        )
+        
+        # Parse if model wants to call a tool
+        action, action_input, output = parse_latest_plugin_call(output)
+        
+        if action:  # Tool call detected
+            observation = call_plugin(action, action_input)
+            output += f'\nObservation: {observation}\nThought:'
+            text += output
+        else:  # Generation complete
+            text += output
+            break
+    
+    new_history = history + [{'user': prompt, 'bot': text}]
+    return text, new_history
+```
+
+```python Build Input Text
+def build_input_text(chat_history, list_of_plugin_info) -> str:
+    """Construct prompt with tool information."""
+    # Format tool descriptions
+    tools_text = []
+    for plugin_info in list_of_plugin_info:
+        tool = TOOL_DESC.format(
+            name_for_model=plugin_info["name_for_model"],
+            name_for_human=plugin_info["name_for_human"],
+            description_for_model=plugin_info["description_for_model"],
+            parameters=json.dumps(plugin_info["parameters"], ensure_ascii=False),
+        )
+        if plugin_info.get('args_format', 'json') == 'json':
+            tool += " Format the arguments as a JSON object."
+        tools_text.append(tool)
+    tools_text = '\n\n'.join(tools_text)
+    
+    # Get tool names
+    tools_name_text = ', '.join([
+        plugin_info["name_for_model"]
+        for plugin_info in list_of_plugin_info
+    ])
+    
+    # Build conversation with ChatML format
+    im_start = '<|im_start|>'
+    im_end = '<|im_end|>'
+    prompt = f'{im_start}system\nYou are a helpful assistant.{im_end}'
+    
+    for i, (query, response) in enumerate(chat_history):
+        if list_of_plugin_info:
+            # Insert tool info at appropriate position
+            if (len(chat_history) == 1) or (i == len(chat_history) - 2):
+                query = REACT_PROMPT.format(
+                    tools_text=tools_text,
+                    tools_name_text=tools_name_text,
+                    query=query,
+                )
+        query = query.lstrip('\n').rstrip()
+        response = response.lstrip('\n').rstrip()
+        prompt += f"\n{im_start}user\n{query}{im_end}"
+        prompt += f"\n{im_start}assistant\n{response}{im_end}"
+    
+    prompt = prompt[:-len(f'{im_end}')]
+    return prompt
+```
+
+```python Parse Tool Calls
+def parse_latest_plugin_call(text):
+    """Extract tool name and arguments from model output."""
+    plugin_name, plugin_args = '', ''
+    i = text.rfind('\nAction:')
+    j = text.rfind('\nAction Input:')
+    k = text.rfind('\nObservation:')
+    
+    if 0 <= i < j:  # Has Action and Action Input
+        if k < j:  # Missing Observation (stop word)
+            text = text.rstrip() + '\nObservation:'
+        k = text.rfind('\nObservation:')
+        plugin_name = text[i + len('\nAction:'):j].strip()
+        plugin_args = text[j + len('\nAction Input:'):k].strip()
+        text = text[:k]
+    
+    return plugin_name, plugin_args, text
+```
+</CodeGroup>
+
+## Text Completion with Stop Words
+
+Configure stop words to halt generation at "Observation:":
+
+```python
+def text_completion(input_text: str, stop_words) -> str:
+    """Generate text with stop words."""
+    im_end = '<|im_end|>'
+    if im_end not in stop_words:
+        stop_words = stop_words + [im_end]
+    
+    stop_words_ids = [tokenizer.encode(w) for w in stop_words]
+    
+    input_ids = torch.tensor([tokenizer.encode(input_text)]).to(model.device)
+    output = model.generate(input_ids, stop_words_ids=stop_words_ids)
+    output = output.tolist()[0]
+    output = tokenizer.decode(output, errors="ignore")
+    
+    # Remove input and special tokens
+    output = output[len(input_text):].replace('<|endoftext|>', '').replace(im_end, '')
+    
+    # Trim at stop words
+    for stop_str in stop_words:
+        idx = output.find(stop_str)
+        if idx != -1:
+            output = output[:idx + len(stop_str)]
+    
+    return output
+```
+
+## Implementing Tool Execution
+
+```python
+import json5
+import os
+
+def call_plugin(plugin_name: str, plugin_args: str) -> str:
+    """Execute the specified plugin and return results."""
+    if plugin_name == 'google_search':
+        os.environ["SERPAPI_API_KEY"] = os.getenv("SERPAPI_API_KEY", default='')
+        from langchain import SerpAPIWrapper
+        return SerpAPIWrapper().run(json5.loads(plugin_args)['search_query'])
+    
+    elif plugin_name == 'image_gen':
+        import urllib.parse
+        prompt = json5.loads(plugin_args)["prompt"]
+        prompt = urllib.parse.quote(prompt)
+        return json.dumps(
+            {'image_url': f'https://image.pollinations.ai/prompt/{prompt}'},
+            ensure_ascii=False
+        )
+    
+    else:
+        raise NotImplementedError
+```
+
+## Complete Example
+
+```python
+# Initialize tools and history
+tools = [
+    {
+        'name_for_human': '谷歌搜索',
+        'name_for_model': 'google_search',
+        'description_for_model': '谷歌搜索是一个通用搜索引擎，可用于访问互联网、查询百科知识、了解时事新闻等。',
+        'parameters': [
+            {
+                'name': 'search_query',
+                'description': '搜索关键词或短语',
+                'required': True,
+                'schema': {'type': 'string'},
+            }
+        ],
+    },
+]
+
+history = []
+
+# User query
+query = '搜索一下谁是周杰伦'
+response, history = llm_with_plugin(
+    prompt=query,
+    history=history,
+    list_of_plugin_info=tools
+)
+
+print(f"User: {query}")
+print(f"Qwen: {response}")
+```
+
+### Expected Output
+
+```
+User: 搜索一下谁是周杰伦
+
+Qwen: Thought: 我应该使用Google搜索查找相关信息。
+Action: google_search
+Action Input: {"search_query": "周杰伦"}
+Observation: Jay Chou is a Taiwanese singer, songwriter, record producer...
+Thought: I now know the final answer.
+Final Answer: 周杰伦（Jay Chou）是一位来自台湾的歌手、词曲创作人、音乐制作人...
+```
+
+## Configuration Tips
+
+<Note>
+**Important Configuration Notes:**
+
+- **Stop Words**: Use `stop_words_ids` parameter to set "Observation:" as a stop word
+- **Top-p Sampling**: Lower top_p (e.g., 0.5) improves accuracy but reduces diversity
+- **Greedy Decoding**: Set `model.generation_config.do_sample = False` for deterministic outputs
+- **JSON Parsing**: Use `json5.loads()` instead of `json.loads()` for more flexible parsing
+</Note>
+
+### Adjusting Generation Parameters
+
+```python
+# Set top-p for balanced output
+model.generation_config.top_p = 0.5
+
+# Or use greedy decoding for maximum accuracy
+model.generation_config.do_sample = False
+model.generation_config.top_k = 1
+```
+
+## Integration Patterns
+
+### With LangChain
+
+```python
+from langchain import SerpAPIWrapper
+from langchain.agents import initialize_agent, AgentType
+
+# Integrate with LangChain tools
+tools = [SerpAPIWrapper()]
+agent = initialize_agent(
+    tools,
+    llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=True
+)
+```
+
+### Multi-Turn Conversations
+
+The implementation supports multi-turn conversations with context preservation:
+
+```python
+history = []
+
+for query in ['你好', '搜索一下谁是周杰伦', '再搜下他老婆是谁']:
+    response, history = llm_with_plugin(
+        prompt=query,
+        history=history,
+        list_of_plugin_info=tools
+    )
+    print(f"User: {query}")
+    print(f"Qwen: {response}\n")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Clear Tool Descriptions" icon="file-lines">
+    Provide detailed descriptions to help the model choose the right tool
+  </Card>
+  <Card title="Robust Parsing" icon="code">
+    Use json5 for parsing and handle malformed JSON gracefully
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Implement proper error handling in tool execution
+  </Card>
+  <Card title="Stop Words" icon="stop">
+    Configure stop words properly to control generation
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Function Calling" icon="phone" href="/advanced/function-calling">
+    Learn about OpenAI-style function calling
+  </Card>
+  <Card title="Building Agents" icon="robot" href="/advanced/agent">
+    Create intelligent agents with Qwen
+  </Card>
+</CardGroup>

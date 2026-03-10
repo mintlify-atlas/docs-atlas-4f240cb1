@@ -1,0 +1,645 @@
+---
+title: vLLM Deployment
+description: Deploy Qwen with vLLM for high-performance, production-grade inference
+---
+
+vLLM is a high-throughput and memory-efficient inference engine for large language models. It provides significant performance improvements over standard PyTorch inference through continuous batching, PagedAttention, and optimized CUDA kernels.
+
+## Why vLLM?
+
+<CardGroup cols={2}>
+  <Card title="High Throughput" icon="gauge-high">
+    2-3x faster than standard inference with continuous batching
+  </Card>
+  <Card title="Memory Efficient" icon="memory">
+    PagedAttention reduces memory waste by up to 80%
+  </Card>
+  <Card title="Easy Integration" icon="plug">
+    Compatible with HuggingFace models and OpenAI API format
+  </Card>
+  <Card title="Multi-GPU Support" icon="server">
+    Built-in tensor parallelism for distributed inference
+  </Card>
+</CardGroup>
+
+## Installation
+
+<Steps>
+  <Step title="Install vLLM">
+    For CUDA 12.1 and PyTorch 2.1:
+    ```bash
+    pip install vllm
+    ```
+    
+    For other CUDA versions, see [vLLM Installation Guide](https://docs.vllm.ai/en/latest/getting_started/installation.html)
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    python -c "import vllm; print(vllm.__version__)"
+    ```
+  </Step>
+
+  <Step title="Using Docker (Recommended)">
+    ```bash
+    docker pull qwenllm/qwen:cu121
+    docker run --gpus all -it --rm qwenllm/qwen:cu121 bash
+    ```
+  </Step>
+</Steps>
+
+<Note>
+vLLM requires CUDA 11.4 or higher and a GPU with compute capability 7.0 or higher.
+</Note>
+
+## GPU Requirements
+
+### Memory Requirements by Model Size
+
+| Model | seq_len 2048 | seq_len 8192 | seq_len 16384 | seq_len 32768 |
+|-------|-------------|--------------|---------------|---------------|
+| Qwen-1.8B | 6.22GB | 7.46GB | - | - |
+| Qwen-7B | 17.94GB | 20.96GB | - | - |
+| Qwen-7B-Int4 | 9.10GB | 12.26GB | - | - |
+| Qwen-14B | 33.40GB | - | - | - |
+| Qwen-14B-Int4 | 13.30GB | - | - | - |
+| Qwen-72B | 166.87GB | 185.50GB | 210.80GB | 253.80GB |
+| Qwen-72B-Int4 | 55.37GB | 73.66GB | 97.79GB | 158.80GB |
+
+### Supported Consumer GPUs
+
+| GPU Memory | GPU Models | Supported Qwen Models |
+|------------|------------|----------------------|
+| 24GB | RTX 4090/3090/A5000 | Qwen-1.8B, Qwen-7B, Qwen-7B-Int4, Qwen-14B-Int4 |
+| 16GB | RTX A4000 | Qwen-1.8B, Qwen-7B-Int4, Qwen-14B-Int4 |
+| 12GB | RTX 3080Ti | Qwen-1.8B, Qwen-14B-Int4 |
+| 11GB | RTX 2080Ti | Qwen-1.8B |
+
+<Warning>
+Bfloat16 requires GPU compute capability ≥ 8.0. For older GPUs, use `--dtype float16`.
+</Warning>
+
+## Quick Start
+
+### Standalone OpenAI API Server
+
+Deploy an OpenAI-compatible API server with vLLM:
+
+<CodeGroup>
+```bash Single GPU
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --dtype bfloat16 \
+  --chat-template template_chatml.jinja
+```
+
+```bash Multi-GPU (4 GPUs)
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16 \
+  --chat-template template_chatml.jinja
+```
+
+```bash Int4 Model
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat-Int4 \
+  --trust-remote-code \
+  --dtype float16 \
+  --chat-template template_chatml.jinja
+```
+
+```bash Custom Port and Host
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype bfloat16 \
+  --chat-template template_chatml.jinja
+```
+</CodeGroup>
+
+### Chat Template Configuration
+
+Download and use the ChatML template for proper formatting:
+
+```bash
+# Download template
+wget https://raw.githubusercontent.com/QwenLM/Qwen/main/examples/template_chatml.jinja
+
+# Use with vLLM
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --chat-template template_chatml.jinja
+```
+
+<Note>
+The chat template file is required for proper message formatting with the Qwen models.
+</Note>
+
+## Python Wrapper
+
+Use the vLLM wrapper for Transformers-like interface:
+
+<Steps>
+  <Step title="Download the Wrapper">
+    ```bash
+    wget https://raw.githubusercontent.com/QwenLM/Qwen/main/examples/vllm_wrapper.py
+    ```
+  </Step>
+
+  <Step title="Use in Python">
+    ```python
+    from vllm_wrapper import vLLMWrapper
+
+    # Single GPU
+    model = vLLMWrapper('Qwen/Qwen-7B-Chat', tensor_parallel_size=1)
+
+    # Multi-GPU (4 GPUs)
+    # model = vLLMWrapper('Qwen/Qwen-7B-Chat', tensor_parallel_size=4)
+
+    # Int4 model
+    # model = vLLMWrapper('Qwen/Qwen-7B-Chat-Int4', 
+    #                     tensor_parallel_size=1, 
+    #                     dtype="float16")
+
+    # Chat interface
+    response, history = model.chat(query="Hello, who are you?", history=None)
+    print(response)
+
+    response, history = model.chat(
+        query="Tell me about quantum computing", 
+        history=history
+    )
+    print(response)
+    ```
+  </Step>
+</Steps>
+
+### Wrapper Configuration
+
+```python
+from vllm_wrapper import vLLMWrapper
+
+model = vLLMWrapper(
+    model_dir='Qwen/Qwen-7B-Chat',
+    trust_remote_code=True,
+    tensor_parallel_size=1,        # Number of GPUs
+    gpu_memory_utilization=0.98,   # GPU memory fraction
+    dtype='bfloat16',              # 'bfloat16', 'float16', 'float32'
+    max_model_len=8192,            # Maximum sequence length
+)
+```
+
+## API Usage
+
+### Using OpenAI Python Client
+
+<CodeGroup>
+```python Basic Chat
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "user", "content": "What is artificial intelligence?"}
+    ],
+    stream=False,
+    stop_token_ids=[151645]  # Required for vLLM
+)
+
+print(response.choices[0].message.content)
+```
+
+```python Streaming
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+for chunk in openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "user", "content": "Write a poem about AI"}
+    ],
+    stream=True,
+    stop_token_ids=[151645]
+):
+    if hasattr(chunk.choices[0].delta, "content"):
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+```python With Parameters
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+response = openai.ChatCompletion.create(
+    model="Qwen",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Explain quantum entanglement"}
+    ],
+    temperature=0.7,
+    top_p=0.8,
+    max_tokens=2048,
+    stop=["<|im_end|>"]  # Alternative stop method
+)
+
+print(response.choices[0].message.content)
+```
+</CodeGroup>
+
+<Warning>
+For vLLM standalone API, you must set `stop_token_ids=[151645]` or `stop=["<|im_end|>"]` to prevent infinite generation.
+</Warning>
+
+## Advanced Configuration
+
+### Performance Tuning
+
+<CodeGroup>
+```bash Maximum Throughput
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 1 \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.95 \
+  --max-num-seqs 256 \
+  --chat-template template_chatml.jinja
+```
+
+```bash Memory Optimization
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --dtype bfloat16 \
+  --max-model-len 4096 \
+  --gpu-memory-utilization 0.90 \
+  --block-size 16 \
+  --swap-space 4 \
+  --chat-template template_chatml.jinja
+```
+
+```bash Low Latency
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-7B-Chat \
+  --trust-remote-code \
+  --dtype bfloat16 \
+  --max-num-seqs 8 \
+  --max-num-batched-tokens 8192 \
+  --disable-log-requests \
+  --chat-template template_chatml.jinja
+```
+</CodeGroup>
+
+### Configuration Parameters
+
+<ParamField path="--model" type="string" required>
+  Model name or path (HuggingFace format)
+</ParamField>
+
+<ParamField path="--tensor-parallel-size" type="int" default="1">
+  Number of GPUs for tensor parallelism
+</ParamField>
+
+<ParamField path="--dtype" type="string" default="auto">
+  Data type: `auto`, `bfloat16`, `float16`, `float32`
+</ParamField>
+
+<ParamField path="--max-model-len" type="int">
+  Maximum sequence length (prompt + generation)
+</ParamField>
+
+<ParamField path="--gpu-memory-utilization" type="float" default="0.90">
+  Fraction of GPU memory to use (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="--max-num-seqs" type="int" default="256">
+  Maximum number of sequences processed in parallel
+</ParamField>
+
+<ParamField path="--max-num-batched-tokens" type="int">
+  Maximum tokens processed in a batch
+</ParamField>
+
+<ParamField path="--swap-space" type="int" default="4">
+  CPU swap space size in GB
+</ParamField>
+
+<ParamField path="--disable-log-requests" type="boolean">
+  Disable request logging for reduced overhead
+</ParamField>
+
+## Multi-GPU Deployment
+
+### Tensor Parallelism
+
+Distribute model layers across multiple GPUs:
+
+```bash
+# 2 GPUs
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-14B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 2 \
+  --dtype bfloat16
+
+# 4 GPUs for Qwen-72B
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16
+
+# 8 GPUs for maximum performance
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 8 \
+  --dtype bfloat16 \
+  --max-num-seqs 512
+```
+
+### GPU Selection
+
+Control which GPUs to use:
+
+```bash
+# Use specific GPUs
+CUDA_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4
+
+# Use GPUs on different nodes (requires Ray)
+ray start --head
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 8 \
+  --distributed-executor-backend ray
+```
+
+## Production Deployment
+
+### Systemd Service
+
+Create `/etc/systemd/system/qwen-vllm.service`:
+
+```ini
+[Unit]
+Description=Qwen vLLM OpenAI API Server
+After=network.target
+
+[Service]
+Type=simple
+User=qwen
+WorkingDirectory=/opt/qwen
+Environment="PATH=/opt/qwen/venv/bin:/usr/local/cuda/bin"
+Environment="CUDA_VISIBLE_DEVICES=0,1,2,3"
+ExecStart=/opt/qwen/venv/bin/python -m vllm.entrypoints.openai.api_server \
+  --model /models/Qwen-72B-Chat \
+  --trust-remote-code \
+  --tensor-parallel-size 4 \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype bfloat16 \
+  --chat-template /opt/qwen/template_chatml.jinja
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/qwen-vllm/output.log
+StandardError=append:/var/log/qwen-vllm/error.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Manage the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable qwen-vllm
+sudo systemctl start qwen-vllm
+sudo systemctl status qwen-vllm
+```
+
+### Docker Deployment
+
+```bash
+docker run --gpus all -d \
+  --name qwen-vllm \
+  --restart always \
+  -p 8000:8000 \
+  -v /models:/models:ro \
+  -v /templates:/templates:ro \
+  qwenllm/qwen:cu121 \
+  python -m vllm.entrypoints.openai.api_server \
+    --model /models/Qwen-7B-Chat \
+    --trust-remote-code \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --chat-template /templates/template_chatml.jinja
+```
+
+### Load Balancing
+
+Nginx configuration for multiple vLLM instances:
+
+```nginx
+upstream vllm_backend {
+    least_conn;
+    server 127.0.0.1:8000 max_fails=3 fail_timeout=30s;
+    server 127.0.0.1:8001 max_fails=3 fail_timeout=30s;
+    server 127.0.0.1:8002 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 80;
+    server_name api.example.com;
+
+    location / {
+        proxy_pass http://vllm_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+```
+
+## Performance Benchmarks
+
+### Throughput Comparison
+
+Qwen-7B on A100 80GB GPU:
+
+| Method | Throughput (tokens/s) | Latency (ms/token) | Max Batch Size |
+|--------|----------------------|-------------------|----------------|
+| PyTorch | 40.93 | 24.4 | 1-4 |
+| vLLM | 68.5 | 14.6 | 256+ |
+| vLLM (4 GPUs) | 245.2 | 4.1 | 1024+ |
+
+### Memory Efficiency
+
+Qwen-72B memory usage:
+
+| Configuration | GPU Memory | Supported Batch Size |
+|--------------|-----------|---------------------|
+| PyTorch (2xA100) | 144.69GB | 1-2 |
+| vLLM (2xA100) | 165GB | 64 |
+| vLLM (4xA100) | 166GB | 256+ |
+
+## Limitations
+
+<Warning>
+**Current vLLM Limitations with Qwen:**
+
+1. **Dynamic NTK ROPE**: vLLM does not support dynamic NTK ROPE scaling. Long sequence generation quality may degrade.
+
+2. **Context Length**: Maximum context length is fixed at model initialization. Cannot dynamically extend beyond `max_model_len`.
+
+3. **Repetition Penalty**: Requires vLLM ≥ 0.2.2 for repetition penalty support.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="CUDA Out of Memory">
+    **Error**: `torch.cuda.OutOfMemoryError`
+    
+    **Solutions**:
+    - Reduce `--gpu-memory-utilization` (try 0.85 or 0.80)
+    - Decrease `--max-model-len`
+    - Use quantized Int4 model
+    - Increase `--tensor-parallel-size`
+    ```bash
+    python -m vllm.entrypoints.openai.api_server \
+      --model Qwen/Qwen-7B-Chat-Int4 \
+      --dtype float16 \
+      --gpu-memory-utilization 0.85 \
+      --max-model-len 4096
+    ```
+  </Accordion>
+
+  <Accordion title="Model fails to load">
+    **Error**: `ValueError: trust_remote_code is required`
+    
+    **Solution**: Always include `--trust-remote-code`:
+    ```bash
+    python -m vllm.entrypoints.openai.api_server \
+      --model Qwen/Qwen-7B-Chat \
+      --trust-remote-code
+    ```
+  </Accordion>
+
+  <Accordion title="Infinite generation">
+    **Issue**: Model generates indefinitely
+    
+    **Solution**: Set proper stop tokens:
+    ```python
+    response = openai.ChatCompletion.create(
+        model="Qwen",
+        messages=[...],
+        stop_token_ids=[151645]  # Essential!
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Low throughput">
+    **Issue**: Not achieving expected performance
+    
+    **Solutions**:
+    - Increase `--max-num-seqs` for more concurrent requests
+    - Use `--dtype bfloat16` instead of float16/float32
+    - Disable request logging with `--disable-log-requests`
+    - Check GPU utilization with `nvidia-smi`
+    ```bash
+    python -m vllm.entrypoints.openai.api_server \
+      --model Qwen/Qwen-7B-Chat \
+      --trust-remote-code \
+      --max-num-seqs 512 \
+      --dtype bfloat16 \
+      --disable-log-requests
+    ```
+  </Accordion>
+
+  <Accordion title="Tensor parallel errors">
+    **Error**: Issues with multi-GPU deployment
+    
+    **Solutions**:
+    - Ensure all GPUs have same model
+    - Check NCCL configuration
+    - Verify GPU visibility:
+    ```bash
+    nvidia-smi
+    echo $CUDA_VISIBLE_DEVICES
+    ```
+    - Test with Ray backend:
+    ```bash
+    ray start --head
+    python -m vllm.entrypoints.openai.api_server \
+      --tensor-parallel-size 4 \
+      --distributed-executor-backend ray
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring
+
+### Health Checks
+
+```bash
+# Check if server is running
+curl http://localhost:8000/health
+
+# List available models
+curl http://localhost:8000/v1/models
+
+# Test inference
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen",
+    "messages": [{"role": "user", "content": "test"}],
+    "max_tokens": 10,
+    "stop_token_ids": [151645]
+  }'
+```
+
+### Metrics Collection
+
+vLLM exposes Prometheus metrics:
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="FastChat Integration" icon="comments" href="/deployment/fastchat">
+    Add web UI and more features with FastChat
+  </Card>
+  <Card title="Production Guide" icon="shield" href="/deployment/production">
+    Production deployment best practices
+  </Card>
+  <Card title="Performance Tuning" icon="gauge-high" href="/performance/optimization">
+    Advanced performance optimization
+  </Card>
+  <Card title="Monitoring Setup" icon="chart-line" href="/monitoring">
+    Set up comprehensive monitoring
+  </Card>
+</CardGroup>

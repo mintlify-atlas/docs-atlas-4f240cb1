@@ -1,0 +1,605 @@
+---
+title: Installation
+description: Complete installation guide for Qwen models and dependencies
+---
+
+This guide covers everything you need to install and configure Qwen models, from basic dependencies to advanced optimizations.
+
+## System Requirements
+
+### Minimum Requirements
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python">
+    Python 3.8 or higher
+  </Card>
+  <Card title="PyTorch" icon="fire">
+    PyTorch 1.12+ (2.0+ recommended)
+  </Card>
+  <Card title="CUDA" icon="microchip">
+    CUDA 11.4+ (for GPU users)
+  </Card>
+  <Card title="GPU Memory" icon="memory">
+    Varies by model size (see table below)
+  </Card>
+</CardGroup>
+
+### GPU Memory Requirements
+
+Minimum GPU memory needed for inference (generating 2048 tokens):
+
+| Model | BF16/FP16 | Int8 | Int4 |
+|-------|-----------|------|------|
+| **Qwen-1.8B** | 4.23GB | 3.48GB | 2.91GB |
+| **Qwen-7B** | 16.99GB | 11.20GB | 8.21GB |
+| **Qwen-14B** | 30.15GB | 18.81GB | 13.01GB |
+| **Qwen-72B** | 144.69GB (2xA100) | 81.27GB (2xA100) | 48.86GB |
+
+<Note>
+For fine-tuning, memory requirements are higher. Q-LoRA requires minimum:
+- Qwen-1.8B: 5.8GB
+- Qwen-7B: 11.5GB
+- Qwen-14B: 18.7GB
+- Qwen-72B: 61.4GB
+</Note>
+
+## Basic Installation
+
+### Step 1: Install Core Dependencies
+
+Install the required Python packages from the requirements file:
+
+```bash
+pip install transformers>=4.32.0,<4.38.0 accelerate tiktoken einops transformers_stream_generator==0.0.4 scipy
+```
+
+<Accordion title="Understanding the Dependencies">
+- **transformers**: Hugging Face library for loading and running models
+- **accelerate**: Efficient model loading and distributed inference
+- **tiktoken**: Fast tokenization library
+- **einops**: Tensor operations for attention mechanisms
+- **transformers_stream_generator**: Streaming text generation support
+- **scipy**: Scientific computing utilities
+</Accordion>
+
+### Step 2: Verify Installation
+
+Test your installation with this simple script:
+
+```python
+import torch
+import transformers
+from transformers import AutoTokenizer
+
+print(f"PyTorch version: {torch.__version__}")
+print(f"Transformers version: {transformers.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+```
+
+## Flash Attention (Recommended)
+
+Flash Attention significantly improves inference speed and reduces memory usage. Installation is optional but highly recommended.
+
+<Steps>
+  <Step title="Check Compatibility">
+    Flash Attention requires:
+    - GPU with FP16 or BF16 support
+    - CUDA 11.4 or higher
+    - PyTorch 1.12 or higher
+    
+    Verify your setup:
+    ```python
+    import torch
+    print(f"BF16 supported: {torch.cuda.is_bf16_supported()}")
+    print(f"FP16 supported: {torch.cuda.get_device_capability()[0] >= 7}")
+    ```
+  </Step>
+
+  <Step title="Install Flash Attention">
+    Qwen supports Flash Attention 2 for optimal performance:
+    
+    ```bash
+    git clone https://github.com/Dao-AILab/flash-attention
+    cd flash-attention
+    pip install .
+    ```
+    
+    <Warning>
+    This installation may take 10-30 minutes as it compiles CUDA kernels. Ensure you have sufficient disk space (~5GB for build files).
+    </Warning>
+  </Step>
+
+  <Step title="Install Optional Components (Flash Attention v2.1.1 and below)">
+    For older versions of Flash Attention, you may optionally install additional components:
+    
+    ```bash
+    # Optional: Layer norm optimization
+    # pip install csrc/layer_norm
+    
+    # Optional: Rotary embedding optimization (not needed for flash-attn > 2.1.1)
+    # pip install csrc/rotary
+    ```
+    
+    <Info>
+    These are optional and may slow down the installation. Skip if flash-attention version is higher than 2.1.1.
+    </Info>
+  </Step>
+
+  <Step title="Verify Flash Attention">
+    Test that Flash Attention is working:
+    
+    ```python
+    try:
+        import flash_attn
+        print(f"Flash Attention version: {flash_attn.__version__}")
+        print("Flash Attention installed successfully!")
+    except ImportError:
+        print("Flash Attention not available")
+    ```
+  </Step>
+</Steps>
+
+### Performance Impact
+
+With Flash Attention enabled, you can expect:
+- **40% faster** batch inference
+- **20-30% lower** memory usage
+- Support for **longer sequences** without OOM errors
+
+## Docker Installation
+
+Using Docker is the fastest way to get started with Qwen, as it includes all dependencies pre-configured.
+
+### Pre-built Docker Images
+
+Qwen provides official Docker images that skip most environment setup steps:
+
+```bash
+# Pull the official Qwen Docker image
+docker pull qwenllm/qwen:latest
+
+# Run the container with GPU support
+docker run --gpus all -it qwenllm/qwen:latest
+```
+
+<Note>
+Make sure you have [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed to use GPUs with Docker.
+</Note>
+
+### Custom Dockerfile
+
+If you need a custom setup, create your own Dockerfile:
+
+```dockerfile
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+# Install Python and pip
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+RUN pip3 install --no-cache-dir \
+    transformers>=4.32.0,<4.38.0 \
+    accelerate \
+    tiktoken \
+    einops \
+    transformers_stream_generator==0.0.4 \
+    scipy \
+    torch>=2.0.0
+
+# Optional: Install Flash Attention
+RUN git clone https://github.com/Dao-AILab/flash-attention && \
+    cd flash-attention && \
+    pip install . && \
+    cd .. && \
+    rm -rf flash-attention
+
+# Set working directory
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
+```
+
+Build and run:
+
+```bash
+docker build -t qwen-custom .
+docker run --gpus all -it -v $(pwd):/workspace qwen-custom
+```
+
+## Quantization Dependencies
+
+To use quantized models (Int4/Int8), install additional libraries:
+
+### AutoGPTQ Installation
+
+```bash
+pip install auto-gptq optimum
+```
+
+<Warning>
+**Version Compatibility**: AutoGPTQ packages are highly dependent on your PyTorch and CUDA versions. If you encounter installation issues:
+
+- For PyTorch 2.1: `auto-gptq>=0.5.1 transformers>=4.35.0 optimum>=1.14.0 peft>=0.6.1`
+- For PyTorch 2.0: `auto-gptq<0.5.0 transformers<4.35.0 optimum<1.14.0 peft>=0.5.0,<0.6.0`
+
+If pre-compiled wheels don't work, build from source:
+```bash
+git clone https://github.com/PanQiWei/AutoGPTQ
+cd AutoGPTQ
+pip install -e .
+```
+</Warning>
+
+### Verify Quantization Support
+
+```python
+try:
+    from auto_gptq import AutoGPTQForCausalLM
+    print("AutoGPTQ installed successfully!")
+except ImportError as e:
+    print(f"AutoGPTQ not available: {e}")
+```
+
+## Fine-tuning Dependencies
+
+For training and fine-tuning, install additional packages:
+
+### LoRA and Q-LoRA
+
+```bash
+pip install "peft<0.8.0"
+```
+
+<Note>
+`peft>=0.8.0` has a known issue with loading Qwen tokenizers. Use `peft<0.8.0` until the issue is resolved.
+</Note>
+
+### DeepSpeed (for distributed training)
+
+```bash
+pip install deepspeed
+```
+
+<Warning>
+**Pydantic Compatibility**: DeepSpeed may conflict with `pydantic>=2.0`. If you encounter errors, ensure `pydantic<2.0`:
+```bash
+pip install "pydantic<2.0"
+```
+</Warning>
+
+### Full Fine-tuning Requirements
+
+```bash
+# Install all training dependencies
+pip install "peft<0.8.0" deepspeed "pydantic<2.0" tensorboard
+```
+
+## Platform-Specific Installation
+
+### x86 Platforms (Intel CPUs/GPUs)
+
+For Intel Core/Xeon processors or Arc GPUs, use OpenVINO for optimized inference:
+
+```bash
+pip install openvino openvino-dev
+```
+
+See the [OpenVINO notebooks](https://github.com/openvinotoolkit/openvino_notebooks/tree/main/notebooks/254-llm-chatbot) for Qwen-specific examples.
+
+### Ascend NPU
+
+For Huawei Ascend 910 NPU:
+
+```bash
+# Install Ascend toolkit first, then:
+pip install torch-npu
+```
+
+Refer to the `ascend-support` directory in the Qwen repository for detailed instructions.
+
+### Hygon DCU
+
+For Hygon DCU acceleration:
+
+```bash
+# Follow DCU-specific installation
+# See dcu-support directory for details
+```
+
+## Installing from Source
+
+To get the latest development version or contribute to Qwen:
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/QwenLM/Qwen.git
+    cd Qwen
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+  </Step>
+
+  <Step title="Run from Source">
+    ```python
+    # You can now import and use local model files
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    
+    # Load from local directory
+    model_path = "./Qwen-7B-Chat"  # Your local model path
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path,
+        trust_remote_code=True
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    ```
+  </Step>
+</Steps>
+
+## Downloading Models
+
+### From Hugging Face
+
+Models are automatically downloaded when you first load them:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# This will download from Hugging Face Hub
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+### From ModelScope
+
+For users with better access to ModelScope:
+
+```python
+from modelscope import snapshot_download
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Download to local directory
+model_dir = snapshot_download('qwen/Qwen-7B-Chat')
+
+# Load from local directory
+tokenizer = AutoTokenizer.from_pretrained(
+    model_dir,
+    trust_remote_code=True
+)
+model = AutoModelForCausalLM.from_pretrained(
+    model_dir,
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+### Manual Download
+
+You can also manually download model files:
+
+<Tabs>
+  <Tab title="Using Git LFS">
+    ```bash
+    # Install git-lfs
+    git lfs install
+    
+    # Clone the model repository
+    git clone https://huggingface.co/Qwen/Qwen-7B-Chat
+    ```
+  </Tab>
+  
+  <Tab title="Using Hugging Face CLI">
+    ```bash
+    # Install huggingface-cli
+    pip install huggingface_hub
+    
+    # Download model
+    huggingface-cli download Qwen/Qwen-7B-Chat --local-dir ./Qwen-7B-Chat
+    ```
+  </Tab>
+</Tabs>
+
+## Environment Variables
+
+Configure these environment variables for optimal performance:
+
+```bash
+# Set cache directory for models
+export HF_HOME=/path/to/cache
+export TRANSFORMERS_CACHE=/path/to/cache
+
+# Enable offline mode (use cached models only)
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+# Set number of threads for PyTorch
+export OMP_NUM_THREADS=8
+
+# CUDA optimizations
+export CUDA_LAUNCH_BLOCKING=0
+```
+
+## Verification
+
+Run this complete verification script to ensure everything is working:
+
+```python
+import sys
+import torch
+import transformers
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+def verify_installation():
+    print("=" * 50)
+    print("Qwen Installation Verification")
+    print("=" * 50)
+    
+    # Python version
+    print(f"\nPython version: {sys.version}")
+    
+    # PyTorch
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    
+    if torch.cuda.is_available():
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"cuDNN version: {torch.backends.cudnn.version()}")
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+            print(f"    Memory: {torch.cuda.get_device_properties(i).total_memory / 1024**3:.2f} GB")
+    
+    # Transformers
+    print(f"\nTransformers version: {transformers.__version__}")
+    
+    # Flash Attention
+    try:
+        import flash_attn
+        print(f"Flash Attention version: {flash_attn.__version__}")
+    except ImportError:
+        print("Flash Attention: Not installed")
+    
+    # AutoGPTQ
+    try:
+        from auto_gptq import AutoGPTQForCausalLM
+        print("AutoGPTQ: Installed")
+    except ImportError:
+        print("AutoGPTQ: Not installed")
+    
+    # PEFT
+    try:
+        import peft
+        print(f"PEFT version: {peft.__version__}")
+    except ImportError:
+        print("PEFT: Not installed")
+    
+    # DeepSpeed
+    try:
+        import deepspeed
+        print(f"DeepSpeed version: {deepspeed.__version__}")
+    except ImportError:
+        print("DeepSpeed: Not installed")
+    
+    print("\n" + "=" * 50)
+    print("Verification complete!")
+    print("=" * 50)
+
+if __name__ == "__main__":
+    verify_installation()
+```
+
+Save this as `verify_installation.py` and run:
+
+```bash
+python verify_installation.py
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Installation fails with CUDA errors">
+    Ensure your CUDA version matches PyTorch requirements:
+    
+    ```bash
+    # Check CUDA version
+    nvcc --version
+    
+    # Install matching PyTorch version
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    ```
+  </Accordion>
+
+  <Accordion title="Flash Attention compilation fails">
+    Common solutions:
+    1. Ensure you have CUDA development tools: `sudo apt-get install cuda-toolkit-11-8`
+    2. Update your GCC compiler: `sudo apt-get install build-essential`
+    3. Set environment variables:
+       ```bash
+       export CUDA_HOME=/usr/local/cuda
+       export PATH=$CUDA_HOME/bin:$PATH
+       export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+       ```
+    4. Try installing from PyPI: `pip install flash-attn --no-build-isolation`
+  </Accordion>
+
+  <Accordion title="AutoGPTQ version conflicts">
+    If you see errors about incompatible versions:
+    
+    ```bash
+    # Uninstall existing versions
+    pip uninstall auto-gptq optimum transformers peft
+    
+    # Install compatible versions
+    pip install torch==2.1.0
+    pip install auto-gptq>=0.5.1 transformers>=4.35.0 optimum>=1.14.0 peft>=0.6.1
+    ```
+  </Accordion>
+
+  <Accordion title="ImportError: trust_remote_code">
+    Update transformers to a compatible version:
+    
+    ```bash
+    pip install "transformers>=4.32.0,<4.38.0"
+    ```
+  </Accordion>
+
+  <Accordion title="Out of disk space during installation">
+    Flash Attention compilation requires ~5GB temporary space:
+    
+    ```bash
+    # Set temporary directory to location with more space
+    export TMPDIR=/path/to/large/tmp
+    pip install flash-attn
+    ```
+  </Accordion>
+
+  <Accordion title="Model download is slow or fails">
+    Try these solutions:
+    1. Use ModelScope instead of Hugging Face (see above)
+    2. Set a mirror:
+       ```bash
+       export HF_ENDPOINT=https://hf-mirror.com
+       ```
+    3. Download manually with git-lfs or huggingface-cli
+    4. Resume interrupted downloads by re-running the same command
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get started with Qwen in under 5 minutes
+  </Card>
+  <Card title="Model Selection" icon="list-check" href="/models/model-selection">
+    Choose the right model for your use case
+  </Card>
+  <Card title="Inference" icon="bolt" href="/inference/basic-usage">
+    Learn about inference options and optimizations
+  </Card>
+  <Card title="Docker Setup" icon="docker" href="/deployment/docker">
+    Deploy Qwen with Docker in production
+  </Card>
+</CardGroup>

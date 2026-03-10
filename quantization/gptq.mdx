@@ -1,0 +1,367 @@
+---
+title: 'GPTQ Quantization'
+description: 'Use AutoGPTQ to quantize Qwen models to Int4 and Int8'
+icon: 'microchip'
+---
+
+## Overview
+
+GPTQ (Generalized Post-Training Quantization) is a weight quantization method that compresses model weights to 4-bit or 8-bit integers. Qwen uses [AutoGPTQ](https://github.com/PanQiWei/AutoGPTQ) for GPTQ quantization, achieving near-lossless compression with significant memory savings.
+
+## Benefits
+
+<CardGroup cols={2}>
+  <Card title="Memory Reduction" icon="memory">
+    Int4: ~4x smaller than BF16  
+    Int8: ~2x smaller than BF16
+  </Card>
+  <Card title="Speed Improvement" icon="gauge-high">
+    Int4: Up to 40% faster  
+    Int8: Similar or slightly slower
+  </Card>
+  <Card title="Quality Preservation" icon="shield-check">
+    Less than 2% accuracy drop on most benchmarks
+  </Card>
+  <Card title="Easy to Use" icon="circle-check">
+    Load pre-quantized models directly or quantize your own
+  </Card>
+</CardGroup>
+
+## Using Pre-Quantized Models
+
+### Installation
+
+Install the required packages:
+
+```bash
+pip install auto-gptq optimum
+```
+
+<Note>
+AutoGPTQ depends on specific versions of PyTorch and CUDA. See version compatibility below.
+</Note>
+
+### Version Compatibility
+
+<Tabs>
+  <Tab title="PyTorch 2.1">
+    ```bash
+    # For torch==2.1
+    pip install torch==2.1.0
+    pip install auto-gptq>=0.5.1
+    pip install transformers>=4.35.0
+    pip install optimum>=1.14.0
+    pip install peft>=0.6.1
+    ```
+  </Tab>
+  
+  <Tab title="PyTorch 2.0">
+    ```bash
+    # For torch>=2.0,<2.1
+    pip install torch>=2.0.0,<2.1.0
+    pip install auto-gptq<0.5.0
+    pip install transformers<4.35.0
+    pip install optimum<1.14.0
+    pip install "peft>=0.5.0,<0.6.0"
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+If you encounter installation issues with `auto-gptq`, check the [official repository](https://github.com/PanQiWei/AutoGPTQ) for pre-compiled wheels matching your environment.
+</Warning>
+
+### Loading Quantized Models
+
+Load and use a pre-quantized model:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    trust_remote_code=True
+)
+
+# Load Int4 model
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Use the model
+response, history = model.chat(tokenizer, "Hello!", history=None)
+print(response)
+```
+
+<Tip>
+The API is identical to the full-precision model. Simply change the model name to the Int4 or Int8 variant.
+</Tip>
+
+### Available Models
+
+All Qwen chat models are available in Int4 and Int8 variants:
+
+<Tabs>
+  <Tab title="Int4 Models">
+    | Model | HuggingFace | ModelScope |
+    |-------|-------------|------------|
+    | Qwen-1.8B-Chat-Int4 | [🤗 Link](https://huggingface.co/Qwen/Qwen-1_8B-Chat-Int4) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-1_8B-Chat-Int4/summary) |
+    | Qwen-7B-Chat-Int4 | [🤗 Link](https://huggingface.co/Qwen/Qwen-7B-Chat-Int4) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-7B-Chat-Int4/summary) |
+    | Qwen-14B-Chat-Int4 | [🤗 Link](https://huggingface.co/Qwen/Qwen-14B-Chat-Int4) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-14B-Chat-Int4/summary) |
+    | Qwen-72B-Chat-Int4 | [🤗 Link](https://huggingface.co/Qwen/Qwen-72B-Chat-Int4) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-72B-Chat-Int4/summary) |
+  </Tab>
+  
+  <Tab title="Int8 Models">
+    | Model | HuggingFace | ModelScope |
+    |-------|-------------|------------|
+    | Qwen-1.8B-Chat-Int8 | [🤗 Link](https://huggingface.co/Qwen/Qwen-1_8B-Chat-Int8) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-1_8B-Chat-Int8/summary) |
+    | Qwen-7B-Chat-Int8 | [🤗 Link](https://huggingface.co/Qwen/Qwen-7B-Chat-Int8) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-7B-Chat-Int8/summary) |
+    | Qwen-14B-Chat-Int8 | [🤗 Link](https://huggingface.co/Qwen/Qwen-14B-Chat-Int8) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-14B-Chat-Int8/summary) |
+    | Qwen-72B-Chat-Int8 | [🤗 Link](https://huggingface.co/Qwen/Qwen-72B-Chat-Int8) | [🤖 Link](https://modelscope.cn/models/qwen/Qwen-72B-Chat-Int8/summary) |
+  </Tab>
+</Tabs>
+
+## Quantizing Your Own Models
+
+Quantize a fine-tuned or custom Qwen model using the provided `run_gptq.py` script.
+
+### Prerequisites
+
+1. A fine-tuned model (or base model)
+2. Calibration data in JSON format
+3. GPU with sufficient memory
+
+<Warning>
+If you fine-tuned with LoRA, merge the adapter weights before quantization. Q-LoRA models are already quantized and do not need this step.
+</Warning>
+
+### Calibration Data Format
+
+Prepare calibration data in the same format as fine-tuning data:
+
+```json
+[
+  {
+    "id": "sample_0",
+    "conversations": [
+      {
+        "from": "user",
+        "value": "你好"
+      },
+      {
+        "from": "assistant",
+        "value": "你好！有什么我可以帮助你的吗？"
+      }
+    ]
+  },
+  {
+    "id": "sample_1",
+    "conversations": [
+      {
+        "from": "user",
+        "value": "What is machine learning?"
+      },
+      {
+        "from": "assistant",
+        "value": "Machine learning is a subset of artificial intelligence..."
+      }
+    ]
+  }
+]
+```
+
+<Tip>
+You can reuse your fine-tuning data or create a representative sample of diverse prompts (100-1000 samples recommended).
+</Tip>
+
+### Running Quantization
+
+Use the `run_gptq.py` script from the source repository:
+
+```bash
+python run_gptq.py \
+    --model_name_or_path /path/to/your/model \
+    --data_path /path/to/calibration_data.json \
+    --out_path /path/to/output \
+    --bits 4  # 4 for Int4, 8 for Int8
+```
+
+#### Script Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|----------|
+| `--model_name_or_path` | Path to the model to quantize | Required |
+| `--data_path` | Path to calibration data JSON file | Required |
+| `--out_path` | Output directory for quantized model | Required |
+| `--bits` | Quantization bits (4 or 8) | 4 |
+| `--group-size` | Group size for quantization | 128 |
+| `--max_len` | Maximum sequence length for calibration | 8192 |
+
+<Note>
+Quantization requires GPU and may take several hours depending on model size and calibration data. For Qwen-7B with 1000 samples, expect ~2-3 hours on an A100 GPU.
+</Note>
+
+### Post-Quantization Steps
+
+After quantization completes:
+
+1. **Copy support files** to the output directory:
+   ```bash
+   cp /path/to/source/*.py /path/to/output/
+   cp /path/to/source/*.cu /path/to/output/
+   cp /path/to/source/*.cpp /path/to/output/
+   cp /path/to/source/generation_config.json /path/to/output/
+   ```
+
+2. **Update config.json** by copying from the corresponding official quantized model:
+   ```bash
+   # For a 7B model quantized to Int4:
+   wget https://huggingface.co/Qwen/Qwen-7B-Chat-Int4/raw/main/config.json \
+        -O /path/to/output/config.json
+   ```
+
+3. **Rename the checkpoint**:
+   ```bash
+   mv /path/to/output/gptq.safetensors /path/to/output/model.safetensors
+   ```
+
+### Testing the Quantized Model
+
+Load and test your quantized model:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "/path/to/output",
+    trust_remote_code=True
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "/path/to/output",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+response, history = model.chat(tokenizer, "你好", history=None)
+print(response)
+```
+
+## Quantization Configuration
+
+The `run_gptq.py` script uses the following GPTQ configuration:
+
+```python
+quantize_config = BaseQuantizeConfig(
+    bits=4,                    # 4 or 8
+    group_size=128,            # Group size for quantization
+    damp_percent=0.01,         # Dampening for numerical stability
+    desc_act=False,            # Disable for faster inference
+    static_groups=False,       # Dynamic group selection
+    sym=True,                  # Symmetric quantization
+    true_sequential=True,      # Sequential quantization
+    model_file_base_name="model"
+)
+```
+
+<Tip>
+`desc_act=False` significantly speeds up inference with minimal perplexity increase. Keep this setting unless accuracy is critical.
+</Tip>
+
+## Performance Impact
+
+GPTQ quantization maintains excellent accuracy:
+
+### Benchmark Comparison (Qwen-7B-Chat)
+
+| Precision | MMLU | C-Eval | GSM8K | HumanEval | Memory | Speed |
+|-----------|------|--------|-------|-----------|--------|-------|
+| BF16 | 55.8 | 59.7 | 50.3 | 37.2 | 16.99GB | 40.93 tok/s |
+| Int8 | 55.4 (-0.4) | 59.4 (-0.3) | 48.3 (-2.0) | 34.8 (-2.4) | 11.20GB | 37.47 tok/s |
+| Int4 | 55.1 (-0.7) | 59.2 (-0.5) | 49.7 (-0.6) | 29.9 (-7.3) | 8.21GB | 50.09 tok/s |
+
+<Note>
+**Key Findings:**
+- Int8 preserves 99% of BF16 quality with 34% memory reduction
+- Int4 achieves 52% memory reduction with minimal quality loss on most tasks
+- HumanEval (code generation) sees larger degradation with Int4
+</Note>
+
+### Speed Considerations
+
+<Warning>
+**Known Issue:** Models loaded via `AutoModelForCausalLM.from_pretrained` run ~20% slower than models loaded directly through AutoGPTQ. This is a known issue reported to the HuggingFace team.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ImportError: cannot import name 'AutoGPTQForCausalLM'">
+    **Solution:** Check your `auto-gptq` version and ensure compatibility with your PyTorch version:
+    ```bash
+    pip show auto-gptq torch
+    ```
+    Refer to the version compatibility table above.
+  </Accordion>
+  
+  <Accordion title="CUDA out of memory during quantization">
+    **Solution:** Reduce calibration data size or use a GPU with more memory:
+    ```bash
+    # Use fewer calibration samples
+    python run_gptq.py --max_len 4096 ...  # Reduce max length
+    ```
+    Quantization requires more memory than inference.
+  </Accordion>
+  
+  <Accordion title="Model outputs are gibberish after quantization">
+    **Solution:** Ensure you completed all post-quantization steps:
+    1. Copied all `.py`, `.cu`, `.cpp` files
+    2. Updated `config.json` from official model
+    3. Renamed `gptq.safetensors` to `model.safetensors`
+  </Accordion>
+  
+  <Accordion title="Quantized model is slower than expected">
+    **Solution:** This is a known issue with models loaded via Transformers. The model should still be faster than BF16 in most cases. For optimal speed, consider using vLLM for deployment.
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose the right precision">
+    - **Int8** for production systems requiring high accuracy
+    - **Int4** for memory-constrained environments or experimentation
+  </Step>
+  
+  <Step title="Use diverse calibration data">
+    Include samples representative of your use case (100-1000 samples)
+  </Step>
+  
+  <Step title="Validate after quantization">
+    Test the quantized model on your evaluation set before deployment
+  </Step>
+  
+  <Step title="Consider use case">
+    Code generation tasks may see larger quality drops with Int4
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="KV Cache Quantization" icon="database" href="/quantization/kv-cache">
+    Further reduce memory usage with KV cache quantization
+  </Card>
+  <Card title="Performance Benchmarks" icon="chart-bar" href="/quantization/performance">
+    Detailed performance analysis and optimization tips
+  </Card>
+  <Card title="Fine-tuning" icon="sliders" href="/finetuning">
+    Fine-tune Qwen models before quantization
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment">
+    Deploy quantized models in production
+  </Card>
+</CardGroup>

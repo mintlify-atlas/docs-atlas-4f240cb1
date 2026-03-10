@@ -1,0 +1,462 @@
+---
+title: OpenAI-Compatible API Server
+description: Deploy Qwen with an OpenAI-compatible REST API for seamless integration
+---
+
+Deploy Qwen models with a production-ready API server that's compatible with OpenAI's API format. This allows you to use existing OpenAI client libraries and tools with Qwen.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install Dependencies">
+    Install the required packages:
+    ```bash
+    pip install fastapi uvicorn "openai<1.0.0" sse_starlette "pydantic<=1.10.13"
+    ```
+  </Step>
+
+  <Step title="Download the API Script">
+    The `openai_api.py` script is included in the Qwen repository:
+    ```bash
+    git clone https://github.com/QwenLM/Qwen.git
+    cd Qwen
+    ```
+  </Step>
+
+  <Step title="Launch the Server">
+    Start the API server with default settings:
+    ```bash
+    python openai_api.py -c Qwen/Qwen-7B-Chat
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The server will start on `http://127.0.0.1:8000` by default. Visit `http://localhost:8000/docs` for interactive API documentation.
+</Note>
+
+## Configuration Options
+
+### Command Line Arguments
+
+```bash
+python openai_api.py \
+  --checkpoint-path Qwen/Qwen-7B-Chat \
+  --server-port 8000 \
+  --server-name 0.0.0.0 \
+  --cpu-only \
+  --disable-gc \
+  --api-auth username:password
+```
+
+<ParamField path="checkpoint-path" type="string" default="Qwen/Qwen-7B-Chat">
+  Model checkpoint name or path. Can be:
+  - HuggingFace model name: `Qwen/Qwen-7B-Chat`
+  - Local path: `/path/to/model`
+</ParamField>
+
+<ParamField path="server-port" type="int" default="8000">
+  Port to run the API server on
+</ParamField>
+
+<ParamField path="server-name" type="string" default="127.0.0.1">
+  Server bind address:
+  - `127.0.0.1`: Local access only
+  - `0.0.0.0`: Accept connections from any network interface
+</ParamField>
+
+<ParamField path="cpu-only" type="boolean" default="false">
+  Run the model on CPU only (not recommended for production)
+</ParamField>
+
+<ParamField path="disable-gc" type="boolean" default="false">
+  Disable garbage collection after each response (improves latency but increases memory usage)
+</ParamField>
+
+<ParamField path="api-auth" type="string">
+  Enable basic HTTP authentication in format `username:password`
+</ParamField>
+
+## API Usage
+
+### Using OpenAI Python Client
+
+<CodeGroup>
+```python Chat Completion
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"  # Not required unless auth is enabled
+
+# Non-streaming request
+response = openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",  # Model name is ignored, uses loaded model
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is quantum computing?"}
+    ],
+    temperature=0.7,
+    top_p=0.8,
+    max_tokens=2048
+)
+
+print(response.choices[0].message.content)
+```
+
+```python Streaming
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+# Streaming request
+for chunk in openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {"role": "user", "content": "Write a short story about AI."}
+    ],
+    stream=True
+):
+    if hasattr(chunk.choices[0].delta, "content"):
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+```python Function Calling
+import openai
+
+openai.api_base = "http://localhost:8000/v1"
+openai.api_key = "none"
+
+functions = [
+    {
+        "name": "get_weather",
+        "description": "Get the current weather for a location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The city name, e.g. San Francisco"
+                }
+            },
+            "required": ["location"]
+        }
+    }
+]
+
+response = openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",
+    messages=[{"role": "user", "content": "What's the weather in Beijing?"}],
+    functions=functions
+)
+
+print(response.choices[0].message)
+```
+</CodeGroup>
+
+### Using cURL
+
+<CodeGroup>
+```bash Chat Completion
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello!"}
+    ],
+    "temperature": 0.7
+  }'
+```
+
+```bash List Models
+curl http://localhost:8000/v1/models
+```
+
+```bash With Authentication
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Basic $(echo -n 'username:password' | base64)" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+</CodeGroup>
+
+## Request Parameters
+
+<ParamField path="model" type="string" required>
+  Model identifier (ignored by server, uses the loaded model)
+</ParamField>
+
+<ParamField path="messages" type="array" required>
+  Array of message objects with `role` and `content` fields
+</ParamField>
+
+<ParamField path="temperature" type="float" default="1.0">
+  Sampling temperature (0.0 to 2.0). Lower values make output more focused and deterministic
+</ParamField>
+
+<ParamField path="top_p" type="float" default="1.0">
+  Nucleus sampling parameter. Alternative to temperature
+</ParamField>
+
+<ParamField path="top_k" type="int">
+  Top-k sampling parameter. Limits token selection to top k options
+</ParamField>
+
+<ParamField path="max_length" type="int">
+  Maximum total sequence length (prompt + completion)
+</ParamField>
+
+<ParamField path="stream" type="boolean" default="false">
+  Enable streaming responses
+</ParamField>
+
+<ParamField path="stop" type="array">
+  Array of stop sequences to halt generation
+</ParamField>
+
+<ParamField path="functions" type="array">
+  Array of function definitions for function calling
+</ParamField>
+
+## Production Deployment
+
+### Using Gunicorn
+
+For production deployments with multiple workers:
+
+```bash
+gunicorn openai_api:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000 \
+  --timeout 300 \
+  --access-logfile access.log \
+  --error-logfile error.log
+```
+
+<Warning>
+Multiple workers require multiple GPUs or CPU-only deployment. Each worker loads a full model instance.
+</Warning>
+
+### Using Systemd Service
+
+Create a systemd service file `/etc/systemd/system/qwen-api.service`:
+
+```ini
+[Unit]
+Description=Qwen OpenAI API Server
+After=network.target
+
+[Service]
+Type=simple
+User=qwen
+WorkingDirectory=/opt/qwen
+Environment="PATH=/opt/qwen/venv/bin"
+ExecStart=/opt/qwen/venv/bin/python openai_api.py -c /models/Qwen-7B-Chat --server-name 0.0.0.0 --server-port 8000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable qwen-api
+sudo systemctl start qwen-api
+sudo systemctl status qwen-api
+```
+
+### Behind Nginx Reverse Proxy
+
+Nginx configuration for SSL termination and load balancing:
+
+```nginx
+upstream qwen_api {
+    server 127.0.0.1:8000;
+    # Add more backend servers for load balancing
+    # server 127.0.0.1:8001;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.example.com;
+
+    ssl_certificate /etc/ssl/certs/api.example.com.crt;
+    ssl_certificate_key /etc/ssl/private/api.example.com.key;
+
+    location / {
+        proxy_pass http://qwen_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # For streaming responses
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # Timeouts
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+## Authentication
+
+### Basic HTTP Authentication
+
+Enable authentication when starting the server:
+
+```bash
+python openai_api.py \
+  -c Qwen/Qwen-7B-Chat \
+  --api-auth admin:secret_password
+```
+
+Client usage:
+
+```python
+import openai
+import base64
+
+openai.api_base = "http://localhost:8000/v1"
+# Set the authorization header
+credentials = base64.b64encode(b"admin:secret_password").decode()
+openai.api_key = credentials
+```
+
+### Custom Authentication
+
+For OAuth2, JWT, or custom authentication, modify the `openai_api.py` script to add middleware:
+
+```python
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Security, HTTPException
+
+security = HTTPBearer()
+
+async def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
+    token = credentials.credentials
+    # Add your token verification logic here
+    if not verify_jwt_token(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return token
+
+# Add to endpoints
+@app.post('/v1/chat/completions', dependencies=[Depends(verify_token)])
+async def create_chat_completion(request: ChatCompletionRequest):
+    # ... existing code
+```
+
+## Monitoring
+
+### Health Check Endpoint
+
+Add a health check endpoint to your deployment:
+
+```python
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "model": "Qwen-7B-Chat"}
+```
+
+### Logging
+
+Enable detailed logging:
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('qwen_api.log'),
+        logging.StreamHandler()
+    ]
+)
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Optimize Memory Usage">
+    - Use `--disable-gc` for lower latency at the cost of higher memory usage
+    - Enable KV cache quantization in the model config
+    - Use quantized models (Int4/Int8) for reduced VRAM requirements
+  </Accordion>
+
+  <Accordion title="Improve Throughput">
+    - Use vLLM-based deployment for high-concurrency scenarios
+    - Enable Flash Attention 2 in the model
+    - Consider multi-GPU deployment with tensor parallelism
+  </Accordion>
+
+  <Accordion title="Reduce Latency">
+    - Use smaller models when possible
+    - Implement request batching
+    - Use bfloat16 precision instead of float32
+    - Pre-load model at startup
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server fails to start">
+    **Error**: `RuntimeError: CUDA out of memory`
+    
+    **Solution**: Use a smaller model or quantized version:
+    ```bash
+    python openai_api.py -c Qwen/Qwen-7B-Chat-Int4
+    ```
+  </Accordion>
+
+  <Accordion title="Slow response times">
+    **Issue**: API responses are slow
+    
+    **Solutions**:
+    - Install Flash Attention 2
+    - Use GPU instead of CPU
+    - Reduce max_length parameter
+    - Consider vLLM deployment for better performance
+  </Accordion>
+
+  <Accordion title="Connection refused">
+    **Error**: Cannot connect to API server
+    
+    **Solution**: Ensure server is bound to correct interface:
+    ```bash
+    python openai_api.py --server-name 0.0.0.0 --server-port 8000
+    ```
+    
+    Check firewall rules and network configuration.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker for easier management
+  </Card>
+  <Card title="vLLM Deployment" icon="rocket" href="/deployment/vllm">
+    Use vLLM for high-performance production inference
+  </Card>
+  <Card title="Production Guide" icon="shield" href="/deployment/production">
+    Best practices for production deployments
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Complete API documentation
+  </Card>
+</CardGroup>

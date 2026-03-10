@@ -1,0 +1,287 @@
+---
+title: Hardware Requirements
+description: Hardware specifications and memory requirements for running Qwen models
+---
+
+This guide covers the hardware requirements for running Qwen models across different sizes, precision levels, and use cases.
+
+## Minimum Requirements
+
+### Software Prerequisites
+
+- **Python**: 3.8 and above
+- **PyTorch**: 1.12 and above (2.0+ recommended)
+- **Transformers**: 4.32.0 and above
+- **CUDA**: 11.4 and above (for GPU users)
+
+### Optional Dependencies
+
+**Flash Attention** (recommended for fp16/bf16):
+
+```bash
+git clone https://github.com/Dao-AILab/flash-attention
+cd flash-attention && pip install .
+```
+
+<Note>
+Flash Attention 2 is now supported and provides significant speed improvements. It requires NVIDIA GPUs with Turing, Ampere, Ada, or Hopper architecture (e.g., H100, A100, RTX 3090, T4, RTX 2080).
+</Note>
+
+## GPU Requirements by Model Size
+
+### Qwen-1.8B
+
+| Precision | Inference Memory | Minimum GPU | Finetuning (Q-LoRA) | Generating 2048 Tokens (Int4) |
+|:----------|:-----------------|:------------|:--------------------|:-----------------------------|
+| BF16      | ~4.23GB         | RTX 3060 Ti | 5.8GB               | 2.9GB                        |
+| Int8      | ~3.48GB         | RTX 3060    | -                   | -                            |
+| Int4      | ~2.91GB         | GTX 1660    | -                   | 2.9GB                        |
+
+**Recommended GPU:** RTX 3060 12GB or better
+
+### Qwen-7B
+
+| Precision | Inference Memory | Minimum GPU | Finetuning (Q-LoRA) | Generating 2048 Tokens (Int4) |
+|:----------|:-----------------|:------------|:--------------------|:-----------------------------|
+| BF16      | ~16.99GB        | RTX 3090    | 11.5GB              | 8.2GB                        |
+| Int8      | ~11.20GB        | RTX 3080    | -                   | -                            |
+| Int4      | ~8.21GB         | RTX 3070    | -                   | 8.2GB                        |
+
+**Recommended GPU:** RTX 3090 24GB, RTX 4090 24GB, or A100 40GB
+
+### Qwen-14B
+
+| Precision | Inference Memory | Minimum GPU | Finetuning (Q-LoRA) | Generating 2048 Tokens (Int4) |
+|:----------|:-----------------|:------------|:--------------------|:-----------------------------|
+| BF16      | ~30.15GB        | A100 40GB   | 18.7GB              | 13.0GB                       |
+| Int8      | ~18.81GB        | RTX 3090    | -                   | -                            |
+| Int4      | ~13.01GB        | RTX 3090    | -                   | 13.0GB                       |
+
+**Recommended GPU:** A100 40GB or A100 80GB
+
+### Qwen-72B
+
+| Precision | Inference Memory     | Minimum GPU    | Finetuning (Q-LoRA) | Generating 2048 Tokens (Int4) |
+|:----------|:--------------------|:---------------|:--------------------|:-----------------------------|
+| BF16      | ~144.69GB          | 2× A100 80GB   | 61.4GB              | 48.9GB                       |
+| Int8      | ~81.27GB           | 2× A100 80GB   | -                   | -                            |
+| Int4      | ~48.86GB           | A100 80GB      | -                   | 48.9GB                       |
+
+**Recommended GPU:** 2× A100 80GB or 4× A100 40GB
+
+## Inference Performance
+
+Benchmarked on A100-SXM4-80G GPU with PyTorch 2.0.1, CUDA 11.8, Flash Attention 2:
+
+| Model Size | Quantization | Speed (Tokens/s) | GPU Memory |
+|:-----------|:-------------|:-----------------|:-----------|
+| 1.8B       | BF16         | 54.09            | 4.23GB     |
+| 1.8B       | Int8         | 55.56            | 3.48GB     |
+| 1.8B       | Int4         | 71.07            | 2.91GB     |
+| 7B         | BF16         | 40.93            | 16.99GB    |
+| 7B         | Int8         | 37.47            | 11.20GB    |
+| 7B         | Int4         | 50.09            | 8.21GB     |
+| 14B        | BF16         | 32.22            | 30.15GB    |
+| 14B        | Int8         | 29.28            | 18.81GB    |
+| 14B        | Int4         | 38.72            | 13.01GB    |
+| 72B        | BF16         | 8.48             | 144.69GB (2×A100) |
+| 72B        | Int8         | 9.05             | 81.27GB (2×A100)  |
+| 72B        | Int4         | 11.32            | 48.86GB    |
+| 72B + vLLM | BF16         | 17.60            | 2×A100     |
+
+<Note>
+Inference speed is averaged over encoded and generated tokens.
+</Note>
+
+## Finetuning Memory Requirements
+
+Profiling on single A100-SXM4-80G with CUDA 11.8, PyTorch 2.0, Flash Attention 2:
+
+**Batch size: 1, Gradient accumulation: 8**
+
+### Qwen-1.8B
+
+| Method            | 256 tokens | 512 tokens | 1024 tokens | 2048 tokens | 4096 tokens | 8192 tokens |
+|:------------------|:-----------|:-----------|:------------|:------------|:------------|:------------|
+| LoRA              | 6.7G / 1.0s | 7.4G / 1.0s | 8.4G / 1.1s | 11.0G / 1.7s | 16.2G / 3.3s | 21.8G / 6.8s |
+| LoRA (emb)        | 13.7G / 1.0s | 14.0G / 1.0s | 14.0G / 1.1s | 15.1G / 1.8s | 19.7G / 3.4s | 27.7G / 7.0s |
+| Q-LoRA            | 5.8G / 1.4s | 6.0G / 1.4s | 6.6G / 1.4s | 7.8G / 2.0s | 10.2G / 3.4s | 15.8G / 6.5s |
+| Full-parameter    | 43.5G / 2.1s | 43.5G / 2.2s | 43.5G / 2.2s | 43.5G / 2.3s | 47.1G / 2.8s | 48.3G / 5.6s |
+
+### Qwen-7B
+
+| Method            | 256 tokens | 512 tokens | 1024 tokens | 2048 tokens | 4096 tokens | 8192 tokens |
+|:------------------|:-----------|:-----------|:------------|:------------|:------------|:------------|
+| LoRA              | 20.1G / 1.2s | 20.4G / 1.5s | 21.5G / 2.8s | 23.8G / 5.2s | 29.7G / 10.1s | 36.6G / 21.3s |
+| LoRA (emb)        | 33.7G / 1.4s | 34.1G / 1.6s | 35.2G / 2.9s | 35.1G / 5.3s | 39.2G / 10.3s | 48.5G / 21.7s |
+| Q-LoRA            | 11.5G / 3.0s | 11.5G / 3.0s | 12.3G / 3.5s | 13.9G / 7.0s | 16.9G / 11.6s | 23.5G / 22.3s |
+| Full-parameter (2× A100) | 37.7G / 2.7s | 37.7G / 2.8s | 37.7G / 3.0s | - | - | - |
+| LoRA (multinode: 2 servers, 2× A100 each) | 23.0G / 2.6s | 23.0G / 2.7s | 23.0G / 2.8s | 25.1G / 5.0s | 27.1G / 9.6s | - |
+
+### Qwen-14B
+
+| Method            | 256 tokens | 512 tokens | 1024 tokens | 2048 tokens |
+|:------------------|:-----------|:-----------|:------------|:------------|
+| LoRA              | 34.0G / 1.6s | 34.0G / 1.7s | 35.2G / 3.4s | 35.1G / 6.2s |
+| LoRA (emb)        | 56.8G / 1.7s | 56.8G / 1.8s | 56.8G / 3.4s | 57.0G / 6.6s |
+| Q-LoRA            | 18.6G / 5.4s | 18.6G / 5.5s | 18.6G / 5.9s | 20.1G / 10.5s |
+| Full-parameter (2× A100) | 72.5G / 4.2s | 72.5G / 4.3s | 72.5G / 4.5s | - |
+
+### Qwen-72B
+
+| Method            | GPUs | 256 tokens | 512 tokens | 1024 tokens |
+|:------------------|:-----|:-----------|:-----------|:------------|
+| LoRA + DeepSpeed ZeRO 3 | 4× A100 | 61.1G / 4.5s | 61.1G / 4.6s | 62.9G / 5.4s |
+| Q-LoRA (Int4)     | 1× A100 | 50.4G / 12.4s | 50.4G / 12.8s | 51.5G / 13.9s |
+
+<Note>
+"LoRA (emb)" refers to training with embedding and output layers as trainable parameters.
+</Note>
+
+## KV Cache Quantization Impact
+
+With KV cache quantization enabled, memory usage for different configurations:
+
+### Batch Size Scaling (Qwen-7B BF16, 1024 tokens)
+
+| KV Cache | bs=1  | bs=4  | bs=16 | bs=32 | bs=64 | bs=100 |
+|:---------|:------|:------|:------|:------|:------|:-------|
+| No       | 16.3GB | 24.1GB | 31.7GB | 48.7GB | OOM | OOM |
+| Yes      | 15.5GB | 17.2GB | 22.3GB | 30.2GB | 48.2GB | 72.4GB |
+
+### Sequence Length Scaling (Qwen-7B BF16, batch size=1)
+
+| KV Cache | 512  | 1024 | 2048 | 4096 | 8192 |
+|:---------|:-----|:-----|:-----|:-----|:-----|
+| No       | 15.2GB | 16.3GB | 17.6GB | 19.5GB | 23.2GB |
+| Yes      | 15.0GB | 15.5GB | 15.8GB | 16.6GB | 17.6GB |
+
+## Multi-GPU Configurations
+
+### Pipeline Parallelism
+
+For models that don't fit on a single GPU, use automatic device mapping:
+
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-14B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+```
+
+<Note>
+Native pipeline parallelism has lower efficiency. For production, consider using vLLM with FastChat.
+</Note>
+
+### Recommended Multi-GPU Setups
+
+| Model | Recommended Configuration |
+|:------|:--------------------------|
+| Qwen-7B | Single RTX 3090/4090 (BF16) or RTX 3070 (Int4) |
+| Qwen-14B | Single A100 40GB (BF16) or RTX 3090 (Int4) |
+| Qwen-72B | 2× A100 80GB (BF16) or Single A100 80GB (Int4) |
+| Qwen-72B + vLLM | 2× A100 80GB for optimal throughput |
+
+## CPU-Only Deployment
+
+Qwen can run on CPU, but with significantly lower performance.
+
+### Using qwen.cpp (Recommended)
+
+For efficient CPU deployment, use [qwen.cpp](https://github.com/QwenLM/qwen.cpp):
+- Pure C++ implementation
+- Optimized for CPU inference
+- Supports quantization
+
+### Direct CPU Inference
+
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="cpu",
+    trust_remote_code=True
+).eval()
+```
+
+<Warning>
+Direct CPU inference is extremely slow and not recommended for production use.
+</Warning>
+
+## Cloud and API Deployment
+
+### DashScope API
+
+The simplest deployment option through Alibaba Cloud:
+
+- **qwen-turbo**: Faster responses
+- **qwen-plus**: Better performance
+- No hardware management required
+- Scalable inference
+
+See the [DashScope documentation](https://dashscope.aliyun.com) for details.
+
+### Specialized Hardware
+
+**Ascend 910**: Supported for inference
+**Hygon DCU**: Supported for inference  
+**x86 with OpenVINO**: Supported on Core™/Xeon® Scalable Processors and Arc™ GPU
+
+## Docker Deployments
+
+Pre-built Docker images are available to simplify environment setup. See the main documentation for Docker usage.
+
+## Optimization Recommendations
+
+<Accordion title="Choose the right quantization">
+**Int4 Quantization** when:
+- Memory is the primary constraint
+- Inference speed is important
+- Slight quality degradation is acceptable
+
+**Int8 Quantization** when:
+- Balance between memory and quality needed
+- Memory is moderately constrained
+
+**BF16/FP16** when:
+- Maximum quality is required
+- Sufficient GPU memory available
+- Training or fine-tuning
+</Accordion>
+
+<Accordion title="Enable Flash Attention">
+Flash Attention 2 provides:
+- 40% speedup for batch inference
+- Lower memory consumption
+- Better scaling with sequence length
+
+Requires compatible GPU architecture (Ampere, Ada, Hopper).
+</Accordion>
+
+<Accordion title="Use KV Cache Quantization">
+Enable for:
+- Longer sequences (4096+ tokens)
+- Larger batch sizes
+- Memory-constrained scenarios
+
+Not compatible with Flash Attention (will auto-disable Flash Attention if both enabled).
+</Accordion>
+
+<Accordion title="Multinode training considerations">
+- DeepSpeed ZeRO 3 requires high inter-node communication bandwidth
+- ZeRO 2 recommended for multinode LoRA fine-tuning
+- Test network throughput before scaling to multiple nodes
+</Accordion>
+
+## Model Specifications Summary
+
+| Model     | Release Date | Max Length | Pretrained Tokens | Min GPU (Finetuning Q-LoRA) | Min GPU (Int4 Inference) |
+|:----------|:------------:|:----------:|:-----------------:|:---------------------------:|:------------------------:|
+| Qwen-1.8B | 2023.11.30  | 32K        | 2.2T              | 5.8GB                       | 2.9GB                    |
+| Qwen-7B   | 2023.08.03  | 32K        | 2.4T              | 11.5GB                      | 8.2GB                    |
+| Qwen-14B  | 2023.09.25  | 8K         | 3.0T              | 18.7GB                      | 13.0GB                   |
+| Qwen-72B  | 2023.11.30  | 32K        | 3.0T              | 61.4GB                      | 48.9GB                   |
+
+## Troubleshooting
+
+For common hardware-related issues, see the [Troubleshooting](/resources/troubleshooting) and [FAQ](/resources/faq) pages.

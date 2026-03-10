@@ -1,0 +1,362 @@
+---
+title: Data Format
+description: Training data format specification for Qwen fine-tuning
+---
+
+## Overview
+
+Qwen fine-tuning expects training data in JSON format with a specific conversation structure. The data format follows a message-based approach compatible with the ChatML template.
+
+## File Structure
+
+Training data should be a JSON file containing an array of conversation examples:
+
+```json
+[
+  {
+    "conversations": [
+      {"from": "user", "value": "First message"},
+      {"from": "assistant", "value": "First response"},
+      {"from": "user", "value": "Second message"},
+      {"from": "assistant", "value": "Second response"}
+    ]
+  },
+  {
+    "conversations": [
+      {"from": "user", "value": "Another conversation"},
+      {"from": "assistant", "value": "Another response"}
+    ]
+  }
+]
+```
+
+## Conversation Format
+
+Each training example is an object with a `conversations` key:
+
+<ParamField path="conversations" type="array" required>
+  Array of message objects representing a multi-turn conversation
+</ParamField>
+
+### Message Object
+
+Each message in the conversation has two fields:
+
+<ParamField path="from" type="string" required>
+  Role of the message sender:
+  - `"user"`: User/human message
+  - `"assistant"`: Model response
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  Content of the message
+</ParamField>
+
+## Simple Example
+
+Single-turn conversation:
+
+```json
+[
+  {
+    "conversations": [
+      {
+        "from": "user",
+        "value": "What is the capital of France?"
+      },
+      {
+        "from": "assistant",
+        "value": "The capital of France is Paris."
+      }
+    ]
+  }
+]
+```
+
+## Multi-turn Example
+
+Conversation with context:
+
+```json
+[
+  {
+    "conversations": [
+      {
+        "from": "user",
+        "value": "Can you help me write a Python function?"
+      },
+      {
+        "from": "assistant",
+        "value": "Of course! I'd be happy to help you write a Python function. What would you like the function to do?"
+      },
+      {
+        "from": "user",
+        "value": "I need a function that calculates the factorial of a number."
+      },
+      {
+        "from": "assistant",
+        "value": "Here's a Python function that calculates factorial:\n\n```python\ndef factorial(n):\n    if n == 0 or n == 1:\n        return 1\n    return n * factorial(n - 1)\n```\n\nThis uses recursion to calculate the factorial."
+      },
+      {
+        "from": "user",
+        "value": "Can you add error handling?"
+      },
+      {
+        "from": "assistant",
+        "value": "Sure! Here's the improved version with error handling:\n\n```python\ndef factorial(n):\n    if not isinstance(n, int):\n        raise TypeError('Input must be an integer')\n    if n < 0:\n        raise ValueError('Input must be non-negative')\n    if n == 0 or n == 1:\n        return 1\n    return n * factorial(n - 1)\n```"
+      }
+    ]
+  }
+]
+```
+
+## Complete Dataset Example
+
+```json
+[
+  {
+    "conversations": [
+      {
+        "from": "user",
+        "value": "Explain machine learning in simple terms."
+      },
+      {
+        "from": "assistant",
+        "value": "Machine learning is a way for computers to learn from examples without being explicitly programmed. Instead of writing rules, we show the computer many examples, and it learns patterns to make predictions or decisions."
+      }
+    ]
+  },
+  {
+    "conversations": [
+      {
+        "from": "user",
+        "value": "What's the difference between supervised and unsupervised learning?"
+      },
+      {
+        "from": "assistant",
+        "value": "Supervised learning uses labeled data where the correct answers are known during training. The model learns to map inputs to outputs. Unsupervised learning works with unlabeled data, finding patterns and structures without predefined categories."
+      }
+    ]
+  },
+  {
+    "conversations": [
+      {
+        "from": "user",
+        "value": "Write a haiku about programming."
+      },
+      {
+        "from": "assistant",
+        "value": "Code flows like water\nBugs hide in silent shadows\nDebugger brings light"
+      }
+    ]
+  }
+]
+```
+
+## Token Processing
+
+During preprocessing, conversations are converted to the ChatML format:
+
+```
+<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+What is the capital of France?<|im_end|>
+<|im_start|>assistant
+The capital of France is Paris.<|im_end|>
+```
+
+### Training Targets
+
+The model is trained to predict only the assistant's responses:
+
+- **User messages**: Masked with `IGNORE_TOKEN_ID` (not included in loss)
+- **Assistant messages**: Used for loss calculation
+- **System message**: Masked (not predicted)
+
+This is handled automatically by the `preprocess()` function in `finetune.py`.
+
+## Data Loading
+
+### Standard Loading
+
+```python
+import json
+
+# Load all data into memory
+with open("train.json", "r") as f:
+    data = json.load(f)
+
+print(f"Loaded {len(data)} examples")
+```
+
+### Lazy Loading
+
+For large datasets, use lazy preprocessing:
+
+```bash
+python finetune.py \
+  --data_path train.json \
+  --lazy_preprocess \
+  ...
+```
+
+This loads and processes examples on-demand rather than all at once.
+
+## Validation
+
+### Required Fields
+
+```python
+def validate_example(example):
+    # Check conversations key exists
+    assert "conversations" in example, "Missing 'conversations' key"
+    
+    conversations = example["conversations"]
+    assert isinstance(conversations, list), "'conversations' must be a list"
+    assert len(conversations) > 0, "Empty conversation"
+    
+    # Check message format
+    for msg in conversations:
+        assert "from" in msg, "Message missing 'from' field"
+        assert "value" in msg, "Message missing 'value' field"
+        assert msg["from"] in ["user", "assistant"], f"Invalid role: {msg['from']}"
+        assert isinstance(msg["value"], str), "Message value must be string"
+    
+    # Check conversation starts with user
+    assert conversations[0]["from"] == "user", "Conversation must start with user"
+    
+    # Check alternating pattern
+    for i in range(len(conversations) - 1):
+        current_role = conversations[i]["from"]
+        next_role = conversations[i + 1]["from"]
+        assert current_role != next_role, f"Consecutive messages from same role at index {i}"
+
+print("Validation passed!")
+```
+
+### Data Quality Checks
+
+```python
+import json
+
+def check_data_quality(filepath):
+    with open(filepath) as f:
+        data = json.load(f)
+    
+    print(f"Total examples: {len(data)}")
+    
+    # Count turns
+    turn_counts = [len(ex["conversations"]) // 2 for ex in data]
+    print(f"Average turns: {sum(turn_counts) / len(turn_counts):.2f}")
+    print(f"Max turns: {max(turn_counts)}")
+    print(f"Min turns: {min(turn_counts)}")
+    
+    # Count tokens (approximate)
+    total_tokens = 0
+    for example in data:
+        for msg in example["conversations"]:
+            total_tokens += len(msg["value"].split())
+    
+    print(f"Approximate total tokens: {total_tokens}")
+    print(f"Average tokens per example: {total_tokens / len(data):.1f}")
+
+check_data_quality("train.json")
+```
+
+## Common Mistakes
+
+### Incorrect: Missing conversations wrapper
+
+```json
+[
+  {
+    "from": "user",
+    "value": "Hello"
+  }
+]
+```
+
+### Correct: Wrapped in conversations array
+
+```json
+[
+  {
+    "conversations": [
+      {"from": "user", "value": "Hello"},
+      {"from": "assistant", "value": "Hi!"}
+    ]
+  }
+]
+```
+
+### Incorrect: Starting with assistant
+
+```json
+{
+  "conversations": [
+    {"from": "assistant", "value": "Hello!"}
+  ]
+}
+```
+
+### Correct: Always start with user
+
+```json
+{
+  "conversations": [
+    {"from": "user", "value": "Hi"},
+    {"from": "assistant", "value": "Hello!"}
+  ]
+}
+```
+
+## Creating Training Data
+
+### From Existing Conversations
+
+```python
+import json
+
+def convert_to_qwen_format(conversations):
+    """Convert conversation list to Qwen format."""
+    formatted_data = []
+    
+    for conv in conversations:
+        example = {"conversations": []}
+        
+        for turn in conv:
+            example["conversations"].append({
+                "from": turn["role"],  # Assuming "role" is "user" or "assistant"
+                "value": turn["content"]
+            })
+        
+        formatted_data.append(example)
+    
+    return formatted_data
+
+# Save to file
+with open("train.json", "w") as f:
+    json.dump(formatted_data, f, indent=2, ensure_ascii=False)
+```
+
+### From CSV
+
+```python
+import pandas as pd
+import json
+
+df = pd.read_csv("qa_pairs.csv")
+
+data = []
+for _, row in df.iterrows():
+    data.append({
+        "conversations": [
+            {"from": "user", "value": row["question"]},
+            {"from": "assistant", "value": row["answer"]}
+        ]
+    })
+
+with open("train.json", "w") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+```

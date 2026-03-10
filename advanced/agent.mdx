@@ -1,0 +1,460 @@
+---
+title: 'Building Agents with Qwen'
+description: 'Create intelligent agents that can reason, plan, and use tools effectively'
+---
+
+## Overview
+
+Qwen models excel at agent-based tasks, combining reasoning, planning, and tool use to solve complex problems. This guide covers building agents with Qwen using popular frameworks and patterns.
+
+## Agent Architectures
+
+Qwen supports multiple agent architectures:
+
+- **ReAct Agents**: Reasoning and Acting in an iterative loop
+- **HuggingFace Agents**: Integration with HuggingFace's agent framework
+- **LangChain Agents**: Using LangChain's agent abstractions
+- **Custom Agents**: Building specialized agents for specific domains
+
+## Building a HuggingFace Agent
+
+### Overview
+
+HuggingFace Agents allow you to use Qwen as a controller that can call various ML models from the HuggingFace Hub using natural language.
+
+**Two Modes:**
+- **run**: Single-turn, no context, excellent at multi-tool composition
+- **chat**: Multi-turn with context, better for iterative refinement
+
+### Installation
+
+```bash
+pip install transformers
+```
+
+### Creating a QwenAgent Class
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, Agent
+from transformers.generation import GenerationConfig
+
+class QWenAgent(Agent):
+    """
+    Agent that uses QWen model and tokenizer to generate code.
+    
+    Args:
+        chat_prompt_template (str, optional): Custom chat prompt template
+        run_prompt_template (str, optional): Custom run prompt template
+        additional_tools (list, optional): Additional tools beyond defaults
+    
+    Example:
+        agent = QWenAgent()
+        agent.run("Draw me a picture of rivers and lakes.")
+    """
+    def __init__(self, chat_prompt_template=None, run_prompt_template=None, additional_tools=None):
+        checkpoint = "Qwen/Qwen-7B-Chat"
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            checkpoint,
+            trust_remote_code=True
+        )
+        self.model = AutoModelForCausalLM.from_pretrained(
+            checkpoint,
+            device_map="auto",
+            trust_remote_code=True
+        ).cuda().eval()
+        
+        self.model.generation_config = GenerationConfig.from_pretrained(
+            checkpoint,
+            trust_remote_code=True
+        )
+        self.model.generation_config.do_sample = False  # Use greedy decoding
+        
+        super().__init__(
+            chat_prompt_template=chat_prompt_template,
+            run_prompt_template=run_prompt_template,
+            additional_tools=additional_tools,
+        )
+    
+    def generate_one(self, prompt, stop):
+        # Replace special tokens (legacy requirement, will be fixed)
+        prompt = prompt.replace("Human:", "_HUMAN_:").replace("Assistant:", "_ASSISTANT_:")
+        stop = [item.replace("Human:", "_HUMAN_:").replace("Assistant:", "_ASSISTANT_:") for item in stop]
+        
+        result, _ = self.model.chat(self.tokenizer, prompt, history=None)
+        
+        # Remove stop sequences
+        for stop_seq in stop:
+            if result.endswith(stop_seq):
+                result = result[:-len(stop_seq)]
+        
+        # Restore special tokens
+        result = result.replace("_HUMAN_:", "Human:").replace("_ASSISTANT_:", "Assistant:")
+        return result
+```
+
+### Using the Agent
+
+<CodeGroup>
+```python Run Mode (Single-Turn)
+# Create agent
+agent = QWenAgent()
+
+# Generate image with remote tools
+result = agent.run("generate an image of panda", remote=True)
+print(result)
+
+# The agent will:
+# 1. Understand the task
+# 2. Select appropriate tool (text-to-image)
+# 3. Generate and execute code
+# 4. Return the result
+```
+
+```python Chat Mode (Multi-Turn)
+# Create agent
+agent = QWenAgent()
+
+# Start conversation
+response = agent.chat("Can you help me with image tasks?")
+print(response)
+
+# Continue conversation
+response = agent.chat("Create a picture of mountains at sunset")
+print(response)
+
+# Agent maintains context across turns
+response = agent.chat("Now make it more colorful")
+print(response)
+```
+</CodeGroup>
+
+## Available HuggingFace Agent Tools
+
+The HuggingFace Agent framework provides 14 default tools:
+
+<AccordionGroup>
+  <Accordion title="Vision & Image Tools">
+    - **Document Question Answering**: Answer questions about PDF documents (Donut)
+    - **Unconditional Image Captioning**: Generate captions for images (BLIP)
+    - **Image Question Answering**: Answer questions about images (VILT)
+    - **Image Segmentation**: Segment images based on prompts (CLIPSeg)
+    - **Text to Image**: Generate images from text (Stable Diffusion)
+    - **Image Transformation**: Transform and edit images
+  </Accordion>
+  
+  <Accordion title="Text & Language Tools">
+    - **Text Question Answering**: Answer questions from long texts (Flan-T5)
+    - **Zero-shot Text Classification**: Classify text into categories (BART)
+    - **Text Summarization**: Summarize long documents (BART)
+    - **Translation**: Translate text between languages (NLLB)
+    - **Text Downloader**: Download text from URLs
+  </Accordion>
+  
+  <Accordion title="Audio & Video Tools">
+    - **Speech to Text**: Transcribe audio to text (Whisper)
+    - **Text to Speech**: Convert text to speech (SpeechT5)
+    - **Text to Video**: Generate short videos from text (damo-vilab)
+  </Accordion>
+</AccordionGroup>
+
+### Remote vs Local Execution
+
+```python
+# Remote execution (HuggingFace API)
+agent.run("transcribe this audio", remote=True)
+
+# Local execution (downloads and runs model locally)
+agent.run("transcribe this audio", remote=False)
+```
+
+<Note>
+Remote execution uses HuggingFace's hosted inference API. Local execution downloads model checkpoints automatically but requires more computational resources.
+</Note>
+
+## Building ReAct Agents
+
+ReAct (Reasoning and Acting) agents follow a thought-action-observation loop:
+
+```python
+import json
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def build_react_agent(tools):
+    """
+    Create a ReAct agent with specified tools.
+    
+    Args:
+        tools: List of tool definitions
+    
+    Returns:
+        Agent function that processes queries
+    """
+    model_name = "Qwen/Qwen-7B-Chat"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        trust_remote_code=True
+    ).eval()
+    
+    def agent(query, history=None):
+        if history is None:
+            history = []
+        
+        # Build ReAct prompt with tools
+        prompt = build_react_prompt(query, tools, history)
+        
+        # Generate with stop at Observation
+        response, _ = model.chat(
+            tokenizer,
+            prompt,
+            history=None,
+            stop_words_ids=[
+                tokenizer.encode('Observation:'),
+                tokenizer.encode('Observation:\n')
+            ]
+        )
+        
+        # Parse action and execute tool
+        action, args = parse_action(response)
+        if action:
+            observation = execute_tool(action, args, tools)
+            # Continue generation with observation
+            final_response, _ = model.chat(
+                tokenizer,
+                prompt + response + f"\nObservation: {observation}\nThought:",
+                history=None
+            )
+            return final_response
+        
+        return response
+    
+    return agent
+
+# Create and use agent
+tools = [
+    {
+        'name': 'search',
+        'description': 'Search the internet for information',
+        'parameters': {'query': 'string'}
+    }
+]
+
+agent = build_react_agent(tools)
+response = agent("What is the capital of France?")
+```
+
+## LangChain Integration
+
+Integrate Qwen with LangChain's agent framework:
+
+```python
+from langchain.agents import AgentType, initialize_agent, load_tools
+from langchain.chat_models import ChatOpenAI
+
+# Configure Qwen as LangChain LLM
+llm = ChatOpenAI(
+    model_name='Qwen',
+    openai_api_base='http://localhost:8000/v1',
+    openai_api_key='EMPTY',
+    streaming=False,
+)
+
+# Load tools
+tools = load_tools(['arxiv', 'wikipedia'])
+
+# Create agent
+agent = initialize_agent(
+    tools,
+    llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=True,
+    max_iterations=3,
+    early_stopping_method="generate"
+)
+
+# Run agent
+result = agent.run('查一下论文 1605.08386 的信息')
+print(result)
+```
+
+## Custom Agent Patterns
+
+### Task Decomposition Agent
+
+```python
+class TaskDecompositionAgent:
+    """Agent that breaks complex tasks into subtasks."""
+    
+    def __init__(self, model, tokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+    
+    def decompose_task(self, task: str) -> list:
+        """Break task into subtasks."""
+        prompt = f"""Break down this task into smaller steps:
+        Task: {task}
+        
+        Steps:
+        1."""
+        
+        response, _ = self.model.chat(self.tokenizer, prompt, history=None)
+        return self.parse_steps(response)
+    
+    def execute_subtask(self, subtask: str, context: dict) -> str:
+        """Execute a single subtask."""
+        prompt = f"""Complete this subtask:
+        Subtask: {subtask}
+        Context: {json.dumps(context)}
+        
+        Result:"""
+        
+        result, _ = self.model.chat(self.tokenizer, prompt, history=None)
+        return result
+    
+    def run(self, task: str) -> str:
+        """Execute complete task."""
+        subtasks = self.decompose_task(task)
+        context = {}
+        
+        for subtask in subtasks:
+            result = self.execute_subtask(subtask, context)
+            context[subtask] = result
+        
+        return self.synthesize_results(context)
+```
+
+### Memory-Augmented Agent
+
+```python
+class MemoryAgent:
+    """Agent with episodic memory."""
+    
+    def __init__(self, model, tokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.memory = []
+    
+    def remember(self, interaction: dict):
+        """Store interaction in memory."""
+        self.memory.append(interaction)
+        if len(self.memory) > 10:  # Keep last 10
+            self.memory.pop(0)
+    
+    def recall(self, query: str) -> list:
+        """Retrieve relevant memories."""
+        # Simple keyword matching (can be enhanced with embeddings)
+        relevant = []
+        for mem in self.memory:
+            if any(word in mem['query'].lower() for word in query.lower().split()):
+                relevant.append(mem)
+        return relevant
+    
+    def chat(self, query: str) -> str:
+        """Chat with memory context."""
+        # Retrieve relevant memories
+        memories = self.recall(query)
+        
+        # Build context-aware prompt
+        context = "\n".join([
+            f"Previous: Q: {m['query']} A: {m['response']}"
+            for m in memories
+        ])
+        
+        if context:
+            prompt = f"{context}\n\nCurrent question: {query}"
+        else:
+            prompt = query
+        
+        # Generate response
+        response, _ = self.model.chat(self.tokenizer, prompt, history=None)
+        
+        # Store interaction
+        self.remember({'query': query, 'response': response})
+        
+        return response
+```
+
+## Best Practices for Agent Development
+
+<CardGroup cols={2}>
+  <Card title="Clear Instructions" icon="list-check">
+    Provide clear, structured prompts that guide the agent's reasoning process
+  </Card>
+  <Card title="Error Recovery" icon="arrows-rotate">
+    Implement fallback strategies when tool calls fail or return unexpected results
+  </Card>
+  <Card title="Context Management" icon="database">
+    Carefully manage conversation context to avoid exceeding token limits
+  </Card>
+  <Card title="Tool Selection" icon="filter">
+    Design tool descriptions that help the agent choose the right tool for each task
+  </Card>
+</CardGroup>
+
+## Agent Performance Tips
+
+<Note>
+**Optimization Strategies:**
+
+- **Use Greedy Decoding**: Set `do_sample=False` for more consistent agent behavior
+- **Limit Iterations**: Set max iterations to prevent infinite loops
+- **Validate Outputs**: Always validate tool outputs before passing to next step
+- **Chinese vs English**: Current Qwen models perform better with Chinese prompts for agent tasks
+</Note>
+
+## Example: Complete Multi-Tool Agent
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Initialize model
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B-Chat", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+# Define tools
+tools = [
+    {
+        'name_for_human': '谷歌搜索',
+        'name_for_model': 'google_search',
+        'description_for_model': '谷歌搜索是一个通用搜索引擎，可用于访问互联网、查询百科知识、了解时事新闻等。',
+        'parameters': [{'name': 'search_query', 'description': '搜索关键词', 'required': True, 'schema': {'type': 'string'}}],
+    },
+    {
+        'name_for_human': '文生图',
+        'name_for_model': 'image_gen',
+        'description_for_model': '文生图是一个AI绘画服务，输入文本描述，返回图片URL',
+        'parameters': [{'name': 'prompt', 'description': '英文关键词', 'required': True, 'schema': {'type': 'string'}}],
+    },
+]
+
+# Run agent
+history = []
+for query in ['你好', '搜索一下谁是周杰伦', '给我画个可爱的小猫']:
+    response, history = llm_with_plugin(
+        prompt=query,
+        history=history,
+        list_of_plugin_info=tools
+    )
+    print(f"User: {query}")
+    print(f"Agent: {response}\n")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Function Calling" icon="phone" href="/advanced/function-calling">
+    Deep dive into function calling APIs
+  </Card>
+  <Card title="Tool Use" icon="wrench" href="/advanced/tool-use">
+    Master ReAct prompting patterns
+  </Card>
+  <Card title="System Prompts" icon="terminal" href="/advanced/system-prompts">
+    Customize agent behavior with system prompts
+  </Card>
+</CardGroup>

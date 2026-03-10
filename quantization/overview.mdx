@@ -1,0 +1,173 @@
+---
+title: 'Quantization Overview'
+description: 'Reduce memory usage and improve inference speed with model quantization'
+icon: 'compress'
+---
+
+## What is Quantization?
+
+Quantization reduces the precision of model weights and activations from floating-point (BF16/FP32) to lower-bit integers (Int8/Int4), significantly decreasing memory usage and improving inference speed with minimal impact on model performance.
+
+## Why Use Quantization?
+
+Qwen models can be quantized to run efficiently on hardware with limited GPU memory:
+
+<CardGroup cols={3}>
+  <Card title="Reduced Memory" icon="memory">
+    Int4 models use ~75% less memory than BF16
+  </Card>
+  <Card title="Faster Inference" icon="gauge-high">
+    Up to 1.4x speed improvement with Int4
+  </Card>
+  <Card title="Minimal Quality Loss" icon="chart-line">
+    Less than 2% accuracy drop on benchmarks
+  </Card>
+</CardGroup>
+
+## Quantization Methods
+
+Qwen supports two complementary quantization techniques:
+
+### GPTQ Quantization
+
+GPTQ quantizes model weights to Int4 or Int8, reducing the model size while maintaining accuracy. It uses the AutoGPTQ library for post-training quantization.
+
+<Card title="GPTQ Details" icon="book" href="/quantization/gptq">
+  Learn how to use GPTQ quantization for Int4 and Int8 models
+</Card>
+
+### KV Cache Quantization
+
+KV cache quantization compresses the key-value attention cache from FP16 to Int8, enabling larger batch sizes and longer sequences without running out of memory.
+
+<Card title="KV Cache Details" icon="book" href="/quantization/kv-cache">
+  Learn how to enable KV cache quantization for memory-efficient inference
+</Card>
+
+## Available Quantized Models
+
+Qwen provides pre-quantized models for immediate use:
+
+<Tabs>
+  <Tab title="Qwen-1.8B">
+    | Model | Memory (2048 tokens) | Speed (tokens/s) |
+    |-------|---------------------|------------------|
+    | Qwen-1.8B-Chat-Int4 | 2.91GB | 71.07 |
+    | Qwen-1.8B-Chat-Int8 | 3.48GB | 55.56 |
+    | Qwen-1.8B-Chat (BF16) | 4.23GB | 54.09 |
+    
+    **Links:** [Int4 🤗](https://huggingface.co/Qwen/Qwen-1_8B-Chat-Int4) [Int8 🤗](https://huggingface.co/Qwen/Qwen-1_8B-Chat-Int8)
+  </Tab>
+  
+  <Tab title="Qwen-7B">
+    | Model | Memory (2048 tokens) | Speed (tokens/s) |
+    |-------|---------------------|------------------|
+    | Qwen-7B-Chat-Int4 | 8.21GB | 50.09 |
+    | Qwen-7B-Chat-Int8 | 11.20GB | 37.47 |
+    | Qwen-7B-Chat (BF16) | 16.99GB | 40.93 |
+    
+    **Links:** [Int4 🤗](https://huggingface.co/Qwen/Qwen-7B-Chat-Int4) [Int8 🤗](https://huggingface.co/Qwen/Qwen-7B-Chat-Int8)
+  </Tab>
+  
+  <Tab title="Qwen-14B">
+    | Model | Memory (2048 tokens) | Speed (tokens/s) |
+    |-------|---------------------|------------------|
+    | Qwen-14B-Chat-Int4 | 13.01GB | 38.72 |
+    | Qwen-14B-Chat-Int8 | 18.81GB | 29.28 |
+    | Qwen-14B-Chat (BF16) | 30.15GB | 32.22 |
+    
+    **Links:** [Int4 🤗](https://huggingface.co/Qwen/Qwen-14B-Chat-Int4) [Int8 🤗](https://huggingface.co/Qwen/Qwen-14B-Chat-Int8)
+  </Tab>
+  
+  <Tab title="Qwen-72B">
+    | Model | Memory (2048 tokens) | Speed (tokens/s) |
+    |-------|---------------------|------------------|
+    | Qwen-72B-Chat-Int4 | 48.86GB | 11.32 |
+    | Qwen-72B-Chat-Int8 | 81.27GB (2xA100) | 9.05 |
+    | Qwen-72B-Chat (BF16) | 144.69GB (2xA100) | 8.48 |
+    
+    **Links:** [Int4 🤗](https://huggingface.co/Qwen/Qwen-72B-Chat-Int4) [Int8 🤗](https://huggingface.co/Qwen/Qwen-72B-Chat-Int8)
+  </Tab>
+</Tabs>
+
+<Note>
+Performance measured on A100-SXM4-80G GPU with PyTorch 2.0.1, CUDA 11.8, and Flash-Attention 2.
+</Note>
+
+## Model Quality Comparison
+
+Quantization maintains strong performance across benchmarks:
+
+| Model | Quantization | MMLU | C-Eval | GSM8K | HumanEval |
+|-------|--------------|------|--------|-------|----------|
+| Qwen-7B-Chat | BF16 | 55.8 | 59.7 | 50.3 | 37.2 |
+| Qwen-7B-Chat | Int8 | 55.4 | 59.4 | 48.3 | 34.8 |
+| Qwen-7B-Chat | Int4 | 55.1 | 59.2 | 49.7 | 29.9 |
+| Qwen-14B-Chat | BF16 | 64.6 | 69.8 | 60.1 | 43.9 |
+| Qwen-14B-Chat | Int8 | 63.6 | 68.6 | 60.0 | 48.2 |
+| Qwen-14B-Chat | Int4 | 63.3 | 69.0 | 59.8 | 45.7 |
+| Qwen-72B-Chat | BF16 | 74.4 | 80.1 | 76.4 | 64.6 |
+| Qwen-72B-Chat | Int8 | 73.5 | 80.1 | 73.5 | 62.2 |
+| Qwen-72B-Chat | Int4 | 73.4 | 80.1 | 75.3 | 61.6 |
+
+<Tip>
+Int8 quantization provides the best balance between memory savings and accuracy retention, typically losing less than 1% on most benchmarks.
+</Tip>
+
+## Quick Start
+
+Load a pre-quantized model:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    trust_remote_code=True
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True
+).eval()
+
+response, history = model.chat(tokenizer, "你好", history=None)
+print(response)
+```
+
+## Combining Techniques
+
+For maximum memory efficiency, combine GPTQ and KV cache quantization:
+
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen-7B-Chat-Int4",
+    device_map="auto",
+    trust_remote_code=True,
+    use_cache_quantization=True,
+    use_cache_kernel=True,
+    use_flash_attn=False  # KV cache quantization incompatible with flash attention
+).eval()
+```
+
+<Warning>
+KV cache quantization and Flash Attention cannot be enabled simultaneously. Flash Attention is automatically disabled when KV cache quantization is enabled.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GPTQ Quantization" icon="gears" href="/quantization/gptq">
+    Detailed guide on using and creating GPTQ quantized models
+  </Card>
+  <Card title="KV Cache Quantization" icon="database" href="/quantization/kv-cache">
+    Enable KV cache quantization for larger batch sizes
+  </Card>
+  <Card title="Performance Benchmarks" icon="chart-bar" href="/quantization/performance">
+    Complete performance analysis and optimization tips
+  </Card>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Get started with Qwen models
+  </Card>
+</CardGroup>
