@@ -1,0 +1,175 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Qwen",
+  "projectDescription": "Open-source large language models with pretrained and chat-aligned models ranging from 1.8B to 72B parameters",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "models/overview",
+              "models/base-models",
+              "models/chat-models",
+              "models/model-selection"
+            ]
+          },
+          {
+            "group": "Inference",
+            "pages": [
+              "inference/basic-usage",
+              "inference/transformers",
+              "inference/modelscope",
+              "inference/batch-inference",
+              "inference/streaming",
+              "inference/multi-gpu"
+            ]
+          },
+          {
+            "group": "Quantization",
+            "pages": [
+              "quantization/overview",
+              "quantization/gptq",
+              "quantization/kv-cache",
+              "quantization/performance"
+            ]
+          },
+          {
+            "group": "Fine-tuning",
+            "pages": [
+              "finetuning/overview",
+              "finetuning/data-preparation",
+              "finetuning/full-parameter",
+              "finetuning/lora",
+              "finetuning/qlora",
+              "finetuning/multinode"
+            ]
+          },
+          {
+            "group": "Advanced Features",
+            "pages": [
+              "advanced/function-calling",
+              "advanced/tool-use",
+              "advanced/agent",
+              "advanced/long-context",
+              "advanced/system-prompts"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/openai-api",
+              "deployment/docker",
+              "deployment/vllm",
+              "deployment/fastchat",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Demos",
+            "pages": [
+              "demos/cli",
+              "demos/web",
+              "demos/gradio"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Model API",
+            "pages": [
+              "api/model-loading",
+              "api/chat",
+              "api/generation-config",
+              "api/tokenizer"
+            ]
+          },
+          {
+            "group": "OpenAI Compatible API",
+            "pages": [
+              "api/openai/chat-completions",
+              "api/openai/models",
+              "api/openai/streaming"
+            ]
+          },
+          {
+            "group": "Training API",
+            "pages": [
+              "api/training/arguments",
+              "api/training/data-format",
+              "api/training/lora-config"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Guides",
+            "pages": [
+              "resources/benchmarks",
+              "resources/technical-report",
+              "resources/tokenization",
+              "resources/hardware-requirements"
+            ]
+          },
+          {
+            "group": "Support",
+            "pages": [
+              "resources/faq",
+              "resources/troubleshooting",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multiple model sizes (1.8B, 7B, 14B, 72B parameters)",
+    "Base and chat-aligned model variants",
+    "Quantization support (GPTQ Int4/Int8, KV cache quantization)",
+    "Fine-tuning methods (full-parameter, LoRA, Q-LoRA)",
+    "Function calling and tool use capabilities",
+    "OpenAI-compatible API server",
+    "Long context support (up to 32K tokens)",
+    "Multi-language support (Chinese and English focus)",
+    "Flash Attention 2 support",
+    "Batch inference optimization"
+  ],
+  "publicApiSurface": [
+    "AutoModelForCausalLM.from_pretrained()",
+    "AutoTokenizer.from_pretrained()",
+    "model.chat()",
+    "model.chat_stream()",
+    "model.generate()",
+    "GenerationConfig",
+    "LoraConfig",
+    "GPTQConfig",
+    "/v1/chat/completions (OpenAI API)",
+    "/v1/models (OpenAI API)",
+    "finetune.py",
+    "openai_api.py",
+    "cli_demo.py",
+    "web_demo.py"
+  ]
+}
